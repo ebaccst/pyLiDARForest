@@ -1,0 +1,33 @@
+;=========================================================
+; DTM Sample
+; Flat files
+
+g:\transects\T_171\NP_T-171_LAS\NP_T-171.las
+g:\transects\T_329\NP_T-329_LAS\NP_T-329.las
+g:\transects\T_333\NP_T-333_LAS\NP_T-333.las
+g:\transects\T_334\NP_T-334_LAS\NP_T-334.las
+g:\transects\T_216\NP_T-216_LAS\NP_T-216.las
+
+; Hilling files
+
+g:\transects\T_279\NP_T-279_LAS\NP_T-279.las
+g:\transects\T_142\NP_T-142_LAS\NP_T-142.las
+g:\transects\T_263\NP_T-263_LAS\NP_T-263.las
+g:\transects\T_180\NP_T-180_LAS\NP_T-180.las
+g:\transects\T_210\NP_T-210_LAS\NP_T-210.las
+
+; Low density
+
+h:\terceirolote\T_228\NP_T-228_LAS\NP_T-228.las
+h:\terceirolote\T_229\NP_T-229_LAS\NP_T-229.las
+h:\terceirolote\T_563\NP_T-563_LAS\NP_T-563.las
+h:\terceirolote\T_230\NP_T-230_LAS\NP_T-230.las
+h:\terceirolote\T_475\NP_T-475_LAS\NP_T-475.las
+
+; High density
+
+h:\terceirolote\T_621\NP_T-621_LAS\NP_T-621.las
+h:\terceirolote\T_583\NP_T-583_LAS\NP_T-583.las
+h:\terceirolote\T_068\NP_T-068_LAS\NP_T-068.las
+h:\terceirolote\T_597\NP_T-597_LAS\NP_T-597.las
+h:\terceirolote\T_200\NP_T-200_LAS\NP_T-200.las
