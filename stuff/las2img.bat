@@ -1,0 +1,11 @@
+python las2img.py h:\transects\T-0347\NP_T-0347_FWF_LAS\NP_T-0347_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0473\NP_T-0473_FWF_LAS\NP_T-0473_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0506\NP_T-0506_FWF_LAS\NP_T-0506_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0629\NP_T-0629_FWF_LAS\NP_T-0629_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0632\NP_T-0632_FWF_LAS\NP_T-0632_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0633\NP_T-0633_FWF_LAS\NP_T-0633_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0635\NP_T-0635_FWF_LAS\NP_T-0635_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0637\NP_T-0637_FWF_LAS\NP_T-0637_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0638\NP_T-0638_FWF_LAS\NP_T-0638_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0639\NP_T-0639_FWF_LAS\NP_T-0639_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
+python las2img.py h:\transects\T-0645\NP_T-0645_FWF_LAS\NP_T-0645_FWF.las H:\TRANSECTS\IMG -p 1 -f 2
