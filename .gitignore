@@ -13,5 +13,6 @@
 *.iws
 
 # Visual Studio
+*.sln
 *.pyproj
 
