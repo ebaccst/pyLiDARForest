@@ -1,0 +1,121 @@
+import os
+import logging
+from shutil import rmtree
+from transect import Transect
+from osgeo import ogr, gdal
+
+
+def has_extension(file, extension):
+    return file.endswith(extension, -1 * len(extension))
+
+
+def get_files(path, _sof_):
+    files = {}
+    for mfile in os.listdir(path):
+        if os.path.isfile(os.path.join(path, mfile)) and _sof_(mfile):
+            files[mfile] = False
+    return files
+
+
+def is_a_transect(file):
+    return has_extension(file, ".asc")
+
+
+def is_poligono_dir(dir):
+    return dir.startswith("POLIGONO")
+
+
+def get_transect_bouding_box(transect):
+    transect_dir_name = "T-" + transect.number
+    original_transect_dir = os.path.join(TRANSECT, transect_dir_name)
+
+    if os.path.isdir(original_transect_dir):
+        bouding_box_file = "POLIGONO_T-" + transect.number + ".shp"
+
+        for pol_dir in os.listdir(original_transect_dir):
+            if is_poligono_dir(pol_dir):
+                return os.path.join(original_transect_dir, pol_dir, bouding_box_file)
+
+
+def get_ogr_dataset(data):
+    drive_name = "ESRI Shapefile"
+    driver = ogr.GetDriverByName(drive_name)
+    return driver.Open(data)
+
+
+def get_spatial_reference(dataset):
+    layer = dataset.GetLayer()
+    return layer.GetSpatialRef()
+
+
+def save_projection(file_name, wkt):
+    file_name = os.path.splitext(file_name)[0] + ".prj"
+    logging.info("Exporting {}".format(file_name))
+    file = open(file_name, "w")
+    file.write(wkt)
+    file.close()
+
+
+def get_gdal_dataset(data):
+    return gdal.Open(data)
+
+def reproject(transect):
+    # Open the bounding box dataset
+    bouding_box_file = get_transect_bouding_box(transect)
+    bounding_box_dataset = get_ogr_dataset(bouding_box_file)
+
+    # Define target SRS
+    output_srs = get_spatial_reference(bounding_box_dataset)
+    output_srs.MorphToESRI()
+    output_wkt = output_srs.ExportToWkt()
+
+    # Open the source dataset
+    input_transect = get_gdal_dataset(transect.path)
+
+    error_threshold = 0.125  # error threshold --> use same value as in gdalwarp
+    resampling = gdal.GRA_Bilinear
+
+
+    # Call AutoCreateWarpedVRT() to fetch default values for target raster dimensions and geotransform
+    temp_dataset = gdal.AutoCreateWarpedVRT(input_transect,
+                                            None,  # src_wkt : left to default value --> will use the one from source
+                                            output_wkt,
+                                            resampling,
+                                            error_threshold)
+
+    output_geotransform = temp_dataset.GetGeoTransform()
+
+    # Create the target dataset
+    output_file = os.path.join(OUTPUT_DIR, transect.file)
+    logging.info("Copying '{}'".format(output_file))
+
+    asc_driver = gdal.GetDriverByName(ASC_DRIVE_NAME)
+    output_transect = asc_driver.CreateCopy(output_file, temp_dataset)
+    del temp_dataset
+
+    # Setting projection
+    logging.info("Setting projection '{}'".format(transect.file))
+    output_transect.SetProjection(output_wkt)
+    output_transect.SetGeoTransform(output_geotransform)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    TRANSECT = r"Y:\TRANSECTS"
+    METRICS = r"C:\Users\EBA\Documents\data\METRICS_all"
+
+    ASC_DRIVE_NAME = "AAIGrid"
+    OUTPUT_DIR = METRICS + "_reprojected"
+
+    if os.path.isdir(OUTPUT_DIR):
+        logging.info("Removing directory '{}'".format(OUTPUT_DIR))
+        rmtree(OUTPUT_DIR)
+
+
+    os.mkdir(OUTPUT_DIR)
+
+    for file, is_processed in get_files(METRICS, is_a_transect).iteritems():
+        transect = Transect(METRICS, file)
+        reproject(transect)
+        is_processed = True
