@@ -1,4 +1,6 @@
+import sys
 import os
+import time
 import logging
 from shutil import rmtree
 from transect import Transect
@@ -10,10 +12,10 @@ def has_extension(file, extension):
 
 
 def get_files(path, _sof_):
-    files = {}
+    files = []
     for mfile in os.listdir(path):
         if os.path.isfile(os.path.join(path, mfile)) and _sof_(mfile):
-            files[mfile] = False
+            files.append(mfile)
     return files
 
 
@@ -35,6 +37,8 @@ def get_transect_bouding_box(transect):
         for pol_dir in os.listdir(original_transect_dir):
             if is_poligono_dir(pol_dir):
                 return os.path.join(original_transect_dir, pol_dir, bouding_box_file)
+    else:
+        raise RuntimeError("Directory '{} not found'".format(original_transect_dir))
 
 
 def get_ogr_dataset(data):
@@ -89,7 +93,8 @@ def reproject(transect):
     output_file = os.path.join(OUTPUT_DIR, transect.file)
     logging.info("Copying '{}'".format(output_file))
 
-    asc_driver = gdal.GetDriverByName(ASC_DRIVE_NAME)
+    asc_driver_name = "AAIGrid"
+    asc_driver = gdal.GetDriverByName(asc_driver_name)
     output_transect = asc_driver.CreateCopy(output_file, temp_dataset)
     del temp_dataset
 
@@ -100,22 +105,40 @@ def reproject(transect):
 
 
 if __name__ == "__main__":
+    # Server
+    #logging.basicConfig(filename="reproject.log", level=logging.INFO)
+
+    # Test
     logging.basicConfig(level=logging.INFO)
 
+    # Path
     TRANSECT = r"Y:\TRANSECTS"
     METRICS = r"C:\Users\EBA\Documents\data\METRICS_all"
 
-    ASC_DRIVE_NAME = "AAIGrid"
-    OUTPUT_DIR = METRICS + "_reprojected"
+    # Measure process time
+    t0 = time.clock()
 
+    OUTPUT_DIR = METRICS + "_reprojected"
     if os.path.isdir(OUTPUT_DIR):
         logging.info("Removing directory '{}'".format(OUTPUT_DIR))
         rmtree(OUTPUT_DIR)
 
-
     os.mkdir(OUTPUT_DIR)
 
-    for file, is_processed in get_files(METRICS, is_a_transect).iteritems():
+    errors = {}
+    transects = get_files(METRICS, is_a_transect)
+    for file in transects:
         transect = Transect(METRICS, file)
-        reproject(transect)
-        is_processed = True
+
+        try:
+            reproject(transect)
+        except Exception as e:
+            logging.error("Error to process '{}': {}".format(transect.path, e))
+            errors[transect] = e
+
+    if len(errors) > 0:
+        logging.warning("Transects with problems: ")
+        for transect, error in errors.iteritems():
+            logging.warning("T-{} with {}".format(transect.number, error))
+
+    logging.info("The transects were reprojected in {} seconds.".format(time.clock() - t0))
