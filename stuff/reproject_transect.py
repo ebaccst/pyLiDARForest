@@ -12,9 +12,9 @@ def has_extension(file, extension):
 
 def get_files(path, _sof_):
     files = []
-    for mfile in os.listdir(path):
-        if os.path.isfile(os.path.join(path, mfile)) and _sof_(mfile):
-            files.append(mfile)
+    for filename in os.listdir(path):
+        if os.path.isfile(os.path.join(path, filename)) and _sof_(filename):
+            files.append(filename)
     return files
 
 
