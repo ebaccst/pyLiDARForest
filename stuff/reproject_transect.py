@@ -22,7 +22,7 @@ def is_a_transect(file):
     return has_extension(file, ".asc")
 
 
-def is_poligono_dir(dir):
+def is_polygon_dir(dir):
     return dir.startswith("POLIGONO")
 
 
@@ -34,7 +34,7 @@ def get_transect_bouding_box(transect):
         bouding_box_file = "POLIGONO_T-" + transect.number + ".shp"
 
         for pol_dir in os.listdir(original_transect_dir):
-            if is_poligono_dir(pol_dir):
+            if is_polygon_dir(pol_dir):
                 return os.path.join(original_transect_dir, pol_dir, bouding_box_file)
     else:
         raise RuntimeError("Directory '{}' not found".format(original_transect_dir))
@@ -49,14 +49,6 @@ def get_ogr_dataset(data):
 def get_spatial_reference(dataset):
     layer = dataset.GetLayer()
     return layer.GetSpatialRef()
-
-
-def save_projection(file_name, wkt):
-    file_name = os.path.splitext(file_name)[0] + ".prj"
-    logging.info("Exporting {}".format(file_name))
-    file = open(file_name, "w")
-    file.write(wkt)
-    file.close()
 
 
 def get_gdal_dataset(data):
@@ -112,8 +104,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     # Path
-    TRANSECT = r"Y:\TRANSECTS"
-    METRICS = r"C:\Users\EBA\Documents\data\METRICS_all"
+    TRANSECT = r"G:\TRANSECTS"
+    METRICS = r"E:\heitor.guerra\CHM_avg50_para fazer_AGB"
 
     # Measure process time
     t0 = time.clock()
