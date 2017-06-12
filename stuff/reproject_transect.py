@@ -1,4 +1,3 @@
-import sys
 import os
 import time
 import logging
@@ -38,7 +37,7 @@ def get_transect_bouding_box(transect):
             if is_poligono_dir(pol_dir):
                 return os.path.join(original_transect_dir, pol_dir, bouding_box_file)
     else:
-        raise RuntimeError("Directory '{} not found'".format(original_transect_dir))
+        raise RuntimeError("Directory '{}' not found".format(original_transect_dir))
 
 
 def get_ogr_dataset(data):
@@ -62,6 +61,7 @@ def save_projection(file_name, wkt):
 
 def get_gdal_dataset(data):
     return gdal.Open(data)
+
 
 def reproject(transect):
     # Open the bounding box dataset
