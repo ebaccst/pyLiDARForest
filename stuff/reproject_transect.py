@@ -41,8 +41,6 @@ class Reproject(object):
             rmtree(self._outputPath)
         os.mkdir(self._outputPath)
 
-        transects = None
-        reprojectFunction = None
         if driver == "ogr":
             transects = self.__getFiles(self.__isShapefile)
             reprojectFunction = self.__ogr
@@ -98,7 +96,7 @@ class Reproject(object):
         del tempDataset
 
         # Setting projection
-        logging.info("Setting projection '{}'".format(transect.file))
+        logging.info("Setting projection '{}'".format(outputWkt))
         outputTransect.SetProjection(outputWkt)
         outputTransect.SetGeoTransform(outputGeotransform)
 
@@ -137,6 +135,9 @@ class Reproject(object):
         return dirname.startswith("POLIGONO")
 
     def __ogr(self, transect, boundingBoxLayer):
+        # Define target SRS
+        outputSpatialReference = boundingBoxLayer.GetSpatialRef()
+
         # Open the source layer
         inputTransectDataset = ogr.Open(transect.path)
         ogrDriver = inputTransectDataset.GetDriver()
@@ -145,18 +146,17 @@ class Reproject(object):
         inputTransectFeatures = inputTransectLayer.GetNextFeature()
 
         # Create the CoordinateTransformation
-        outputSpatialReference = boundingBoxLayer.GetSpatialRef()
-        outputCoordtransformation = osr.CoordinateTransformation(inputTransectLayer.GetSpatialRef(), outputSpatialReference)
+        logging.info("Coordinate Transformation '{}'".format(outputSpatialReference.ExportToWkt()))
+        outputCoordtransformation = osr.CoordinateTransformation(outputSpatialReference, outputSpatialReference)
 
         # Create the output layer
         outputFilepath = os.path.join(self._outputPath, transect.file)
-        outputLayerName = os.path.splitext(transect.file)[0]
         logging.info("Copying '{}'".format(outputFilepath))
 
         if os.path.exists(outputFilepath):
             ogrDriver.DeleteDataSource(outputFilepath)
         outputTransectDataset = ogrDriver.CreateDataSource(outputFilepath)
-        outputTransectLayer = outputTransectDataset.CreateLayer(outputLayerName,
+        outputTransectLayer = outputTransectDataset.CreateLayer("T-{}".format(transect.number),
                                                                 outputSpatialReference,
                                                                 inputTransectDefn.GetGeomType())
 
@@ -165,10 +165,10 @@ class Reproject(object):
             field_defn = inputTransectDefn.GetFieldDefn(i)
             outputTransectLayer.CreateField(field_defn)
 
-        # get the output layer's feature definition
+        # Get the output layer's feature definition
         outputTransectDefn = outputTransectLayer.GetLayerDefn()
 
-        # loop through the input features
+        # Loop through the input features
         while inputTransectFeatures:
             # get the input geometry
             geom = inputTransectFeatures.GetGeometryRef()
@@ -180,13 +180,13 @@ class Reproject(object):
             outputFeature.SetGeometry(geom)
             for i in range(0, outputTransectDefn.GetFieldCount()):
                 outputFeature.SetField(outputTransectDefn.GetFieldDefn(i).GetNameRef(), inputTransectFeatures.GetField(i))
-            # add the feature to the shapefile
+            # add the feature to the data
             outputTransectLayer.CreateFeature(outputFeature)
             # dereference the features and get the next input feature
-            outputFeature = None
+            del outputFeature
             inputTransectFeatures = inputTransectLayer.GetNextFeature()
 
-        # Save and close the shapefiles
+        # Save and close the data
         inputTransectDataset.Destroy()
         outputTransectDataset.Destroy()
 
