@@ -1,0 +1,4 @@
+C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\reproject_transect.py" -t "G:\TRANSECTS" -p "E:\heitor.guerra\SHAPES_transectos\editado" -d "ogr" -l "E:\heitor.guerra\SHAPES_transectos\editado.log"
+C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\reproject_transect.py" -t "G:\TRANSECTS" -p "E:\heitor.guerra\SHAPES_transectos\las_boundary" -d "ogr" -l "E:\heitor.guerra\SHAPES_transectos\las_boundary.log"
+C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\reproject_transect.py" -t "G:\TRANSECTS" -p "E:\heitor.guerra\CHM_avg50_para fazer_AGB" -d "gdal" -l "E:\heitor.guerra\CHM.log"
+C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\reproject_transect.py" -t "G:\TRANSECTS" -p "E:\heitor.guerra\METRICAS_all" -d "gdal" -l "E:\heitor.guerra\METRICAS.log"

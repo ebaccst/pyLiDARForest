@@ -1,136 +1,211 @@
 import os
 import time
 import logging
+import argparse
 from shutil import rmtree
 from transect import Transect
-from osgeo import ogr, gdal
+from osgeo import ogr, osr, gdal
 
 
-def has_extension(file, extension):
-    return file.endswith(extension, -1 * len(extension))
+class Reproject(object):
 
+    @staticmethod
+    def processCmdLine():
+        parser = argparse.ArgumentParser(description="Reproject a Transect using the bounding box coordinates.")
+        parser.add_argument("-t", "--transects", type=str, help="Path of the Transects.")
+        parser.add_argument("-p", "--path", type=str, help="Path of the files to process.")
+        parser.add_argument("-o", "--output", type=str, help="Destination path of output files. Default 'path + _reprojected'.")
+        parser.add_argument("-l", "--log", type=str, help="Logs to a file. Default 'console'.")
+        parser.add_argument("-d", "--driver", type=str, help="GDAL drivers. Default 'ogr'.")
 
-def get_files(path, _sof_):
-    files = []
-    for filename in os.listdir(path):
-        if os.path.isfile(os.path.join(path, filename)) and _sof_(filename):
-            files.append(filename)
-    return files
+        args = parser.parse_args()
+        if not os.path.isdir(args.transects):
+            raise RuntimeError("Directory '{}' not found".format(args.transects))
+        if not os.path.isdir(args.path):
+            raise RuntimeError("Directory '{}' not found".format(args.path))
+        return args
 
+    def __init__(self, transectsPath, metricsPath, outputPath):
+        self._transectsPath = transectsPath
+        self._metricsPath = metricsPath
+        self._outputPath = outputPath
 
-def is_a_transect(file):
-    return has_extension(file, ".asc")
+    def run(self, log=None, driver="ogr"):
+        if log:
+            logging.basicConfig(filename=log, level=logging.INFO)
+        else:
+            logging.basicConfig(level=logging.INFO)
 
+        if os.path.isdir(self._outputPath):
+            logging.info("Removing directory '{}'".format(self._outputPath))
+            rmtree(self._outputPath)
+        os.mkdir(self._outputPath)
 
-def is_polygon_dir(dir):
-    return dir.startswith("POLIGONO")
+        if driver == "ogr":
+            transects = self.__getFiles(self.__isShapefile)
+            reprojectFunction = self.__ogr
+        elif driver == "gdal":
+            transects = self.__getFiles(self.__isAsc)
+            reprojectFunction = self.__gdal
+        else:
+            raise RuntimeError("Driver '{}' not supported".format(driver))
 
+        errors = {}
+        t0 = time.clock()
+        for transect in transects:
+            try:
+                self.__reproject(transect, reprojectFunction)
+            except Exception as e:
+                logging.error("Error to process '{}': {}".format(transect.path, e))
+                errors[transect] = e
 
-def get_transect_bouding_box(transect):
-    transect_dir_name = "T-" + transect.number
-    original_transect_dir = os.path.join(TRANSECT, transect_dir_name)
+        if len(errors) > 0:
+            logging.warning("Transects with problems: ")
+            for transect, error in errors.iteritems():
+                logging.warning("T-{} with {}".format(transect.number, error))
 
-    if os.path.isdir(original_transect_dir):
-        bouding_box_file = "POLIGONO_T-" + transect.number + ".shp"
+        logging.info("The transects were reprojected in {} seconds.".format(time.clock() - t0))
 
-        for pol_dir in os.listdir(original_transect_dir):
-            if is_polygon_dir(pol_dir):
-                return os.path.join(original_transect_dir, pol_dir, bouding_box_file)
-    else:
-        raise RuntimeError("Directory '{}' not found".format(original_transect_dir))
+    def __gdal(self, transect, boundingBoxLayer):
+        # Define target SRS
+        outputSrs = boundingBoxLayer.GetSpatialRef()
+        outputSrs.MorphToESRI()
+        outputWkt = outputSrs.ExportToWkt()
 
+        # Open the source dataset
+        inputTransect = gdal.Open(transect.path)
+        gdalDriver = inputTransect.GetDriver()
 
-def get_ogr_dataset(data):
-    drive_name = "ESRI Shapefile"
-    driver = ogr.GetDriverByName(drive_name)
-    return driver.Open(data)
+        errorThreshold = 0.125  # error threshold --> use same value as in gdalwarp
+        resampling = gdal.GRA_Bilinear
 
+        # Call AutoCreateWarpedVRT() to fetch default values for target raster dimensions and geotransform
+        tempDataset = gdal.AutoCreateWarpedVRT(inputTransect,
+                                                None,  # src_wkt : left to default value --> will use the one from source
+                                                outputWkt,
+                                                resampling,
+                                                errorThreshold)
 
-def get_spatial_reference(dataset):
-    layer = dataset.GetLayer()
-    return layer.GetSpatialRef()
+        outputGeotransform = tempDataset.GetGeoTransform()
 
+        # Create the target dataset
+        outputFile = os.path.join(self._outputPath, transect.file)
+        logging.info("Copying '{}'".format(outputFile))
 
-def get_gdal_dataset(data):
-    return gdal.Open(data)
+        outputTransect = gdalDriver.CreateCopy(outputFile, tempDataset)
+        del tempDataset
 
+        # Setting projection
+        logging.info("Setting projection '{}'".format(outputWkt))
+        outputTransect.SetProjection(outputWkt)
+        outputTransect.SetGeoTransform(outputGeotransform)
 
-def reproject(transect):
-    # Open the bounding box dataset
-    bouding_box_file = get_transect_bouding_box(transect)
-    bounding_box_dataset = get_ogr_dataset(bouding_box_file)
+    def __getFiles(self, _sof_):
+        files = []
+        for filename in os.listdir(self._metricsPath):
+            if os.path.isfile(os.path.join(self._metricsPath, filename)) and _sof_(filename):
+                files.append(Transect(self._metricsPath, filename))
+        return files
 
-    # Define target SRS
-    output_srs = get_spatial_reference(bounding_box_dataset)
-    output_srs.MorphToESRI()
-    output_wkt = output_srs.ExportToWkt()
+    def __getTransectBoudingBox(self, transect):
+        BASE_NAME_DIR = "T-"
+        BASE_NAME_TRANSECT = "POLIGONO_T-"
+        BASE_EXTENSION = ".shp"
 
-    # Open the source dataset
-    input_transect = get_gdal_dataset(transect.path)
+        transectDirName = BASE_NAME_DIR + transect.number
+        originalTransectDir = os.path.join(self._transectsPath, transectDirName)
+        if os.path.isdir(originalTransectDir):
+            boudingBoxFile = BASE_NAME_TRANSECT + transect.number + BASE_EXTENSION
+            for pol_dir in os.listdir(originalTransectDir):
+                if self.__isPolygonDir(pol_dir):
+                    return os.path.join(originalTransectDir, pol_dir, boudingBoxFile)
+        else:
+            raise RuntimeError("Directory '{}' not found".format(originalTransectDir))
 
-    error_threshold = 0.125  # error threshold --> use same value as in gdalwarp
-    resampling = gdal.GRA_Bilinear
+    def __hasExtension(self, filename, extension):
+        return filename.endswith(extension, -1 * len(extension))
 
+    def __isAsc(self, filename):
+        return self.__hasExtension(filename, ".asc")
 
-    # Call AutoCreateWarpedVRT() to fetch default values for target raster dimensions and geotransform
-    temp_dataset = gdal.AutoCreateWarpedVRT(input_transect,
-                                            None,  # src_wkt : left to default value --> will use the one from source
-                                            output_wkt,
-                                            resampling,
-                                            error_threshold)
+    def __isShapefile(self, filename):
+        return self.__hasExtension(filename, ".shp")
 
-    output_geotransform = temp_dataset.GetGeoTransform()
+    def __isPolygonDir(self, dirname):
+        return dirname.startswith("POLIGONO")
 
-    # Create the target dataset
-    output_file = os.path.join(OUTPUT_DIR, transect.file)
-    logging.info("Copying '{}'".format(output_file))
+    def __ogr(self, transect, boundingBoxLayer):
+        # Define target SRS
+        outputSpatialReference = boundingBoxLayer.GetSpatialRef()
 
-    asc_driver_name = "AAIGrid"
-    asc_driver = gdal.GetDriverByName(asc_driver_name)
-    output_transect = asc_driver.CreateCopy(output_file, temp_dataset)
-    del temp_dataset
+        # Open the source layer
+        inputTransectDataset = ogr.Open(transect.path)
+        ogrDriver = inputTransectDataset.GetDriver()
+        inputTransectLayer = inputTransectDataset.GetLayer()
+        inputTransectDefn = inputTransectLayer.GetLayerDefn()
+        inputTransectFeatures = inputTransectLayer.GetNextFeature()
 
-    # Setting projection
-    logging.info("Setting projection '{}'".format(transect.file))
-    output_transect.SetProjection(output_wkt)
-    output_transect.SetGeoTransform(output_geotransform)
+        # Create the CoordinateTransformation
+        logging.info("Coordinate Transformation '{}'".format(outputSpatialReference.ExportToWkt()))
+        outputCoordtransformation = osr.CoordinateTransformation(outputSpatialReference, outputSpatialReference)
 
+        # Create the output layer
+        outputFilepath = os.path.join(self._outputPath, transect.file)
+        logging.info("Copying '{}'".format(outputFilepath))
+
+        if os.path.exists(outputFilepath):
+            ogrDriver.DeleteDataSource(outputFilepath)
+        outputTransectDataset = ogrDriver.CreateDataSource(outputFilepath)
+        outputTransectLayer = outputTransectDataset.CreateLayer("T-{}".format(transect.number),
+                                                                outputSpatialReference,
+                                                                inputTransectDefn.GetGeomType())
+
+        # Add fields
+        for i in range(0, inputTransectDefn.GetFieldCount()):
+            field_defn = inputTransectDefn.GetFieldDefn(i)
+            outputTransectLayer.CreateField(field_defn)
+
+        # Get the output layer's feature definition
+        outputTransectDefn = outputTransectLayer.GetLayerDefn()
+
+        # Loop through the input features
+        while inputTransectFeatures:
+            # get the input geometry
+            geom = inputTransectFeatures.GetGeometryRef()
+            # reproject the geometry
+            geom.Transform(outputCoordtransformation)
+            # create a new feature
+            outputFeature = ogr.Feature(outputTransectDefn)
+            # set the geometry and attribute
+            outputFeature.SetGeometry(geom)
+            for i in range(0, outputTransectDefn.GetFieldCount()):
+                outputFeature.SetField(outputTransectDefn.GetFieldDefn(i).GetNameRef(), inputTransectFeatures.GetField(i))
+            # add the feature to the data
+            outputTransectLayer.CreateFeature(outputFeature)
+            # dereference the features and get the next input feature
+            del outputFeature
+            inputTransectFeatures = inputTransectLayer.GetNextFeature()
+
+        # Save and close the data
+        inputTransectDataset.Destroy()
+        outputTransectDataset.Destroy()
+
+    def __reproject(self, transect, __sof__):
+        # OGR driver
+        ogrDriver = ogr.GetDriverByName("ESRI Shapefile")
+        # Open the bounding box dataset
+        boundingBoxDataset = ogrDriver.Open(self.__getTransectBoudingBox(transect))
+        boundingBoxLayer = boundingBoxDataset.GetLayer()
+        # Run reproject
+        __sof__(transect, boundingBoxLayer)
+        # Destroy dataset
+        boundingBoxDataset.Destroy()
 
 if __name__ == "__main__":
-    # Server
-    #logging.basicConfig(filename="reproject.log", level=logging.INFO)
-
-    # Test
-    logging.basicConfig(level=logging.INFO)
-
-    # Path
-    TRANSECT = r"G:\TRANSECTS"
-    METRICS = r"E:\heitor.guerra\CHM_avg50_para fazer_AGB"
-
-    # Measure process time
-    t0 = time.clock()
-
-    OUTPUT_DIR = METRICS + "_reprojected"
-    if os.path.isdir(OUTPUT_DIR):
-        logging.info("Removing directory '{}'".format(OUTPUT_DIR))
-        rmtree(OUTPUT_DIR)
-
-    os.mkdir(OUTPUT_DIR)
-
-    errors = {}
-    transects = get_files(METRICS, is_a_transect)
-    for file in transects:
-        transect = Transect(METRICS, file)
-
-        try:
-            reproject(transect)
-        except Exception as e:
-            logging.error("Error to process '{}': {}".format(transect.path, e))
-            errors[transect] = e
-
-    if len(errors) > 0:
-        logging.warning("Transects with problems: ")
-        for transect, error in errors.iteritems():
-            logging.warning("T-{} with {}".format(transect.number, error))
-
-    logging.info("The transects were reprojected in {} seconds.".format(time.clock() - t0))
+    # C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\reproject_transect.py" -t "G:\TRANSECTS" -p "E:\heitor.guerra\TESTE_GDAL" -d "gdal"
+    try:
+        args = Reproject.processCmdLine()
+        reproject = Reproject(args.transects, args.path, args.output or args.path + "_reprojected")
+        reproject.run(log=args.log, driver=args.driver)
+    except Exception as e:
+        raise RuntimeError("Unexpected error: {}".format(e))
