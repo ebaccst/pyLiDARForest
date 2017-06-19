@@ -2,6 +2,7 @@ import logging
 import time
 import os
 import argparse
+from re import search
 from dbutils import dbutils
 from transect import Transect
 from osgeo import ogr
@@ -12,12 +13,12 @@ class UpdateGeom(object):
 
     @staticmethod
     def processCmdLine():
-        parser = argparse.ArgumentParser(description="Reproject a Transect using the bounding box coordinates.")
+        parser = argparse.ArgumentParser(description="Update column geom.")
         parser.add_argument("-t", "--transects", type=str, help="Path of the Transects.")
         parser.add_argument("-d", "--dbname", type=str, help="DB name.")
         parser.add_argument("-u", "--user", type=str, help="Postgres user. Default 'postgres'.")
         parser.add_argument("-p", "--password", type=str, help="Postgres password. Default ''")
-        parser.add_argument("-h", "--host", type=str, help="Postgres host.")
+        parser.add_argument("-ip", "--ip", type=str, help="Postgres host.")
         parser.add_argument("-ts", "--tablespace", type=str, help="Default 'pg_default'.")
         parser.add_argument("-n", "--tablename", type=str, help="Postgres table name. Default 'metrics'.")
         parser.add_argument("-tf", "--transectfield", type=str, help="Table column name. Default 'filename'.")
@@ -50,12 +51,12 @@ class UpdateGeom(object):
         self._ydim = ydim
 
     def run(self, log=None):
-        print("TESTE")
         if log:
             logging.basicConfig(filename=log, level=logging.INFO)
         else:
             logging.basicConfig(level=logging.INFO)
 
+        logging.info("Start update..")
         t0 = time.clock()
 
         schema = self._db.getTableSchema(self._tableName)
@@ -71,16 +72,21 @@ class UpdateGeom(object):
         logging.debug("Running SQL: \n{}".format(addResult))
 
         transectsProj = {}
-        sqlTransectsFilename = "SELECT {} FROM {} limit 10;".format(self._transectField, self._tableName)
+        sqlTransectsFilename = "SELECT DISTINCT({}) FROM {};".format(self._transectField, self._tableName)
 
         def setTransectEPSG(row):
-            filename = row[0]
-            if filename not in transectsProj:
-                transect = Transect(self._transectsPath, filename)
-                srs = self.__getSpatialRef(transect)
-                geogcs = srs.GetAttrValue("GEOGCS")
-                zone = srs.GetUTMZone()
-                transectsProj[filename] = self.__getEPSG(geogcs, zone)
+            if row and len(row) > 0:
+                filename = row[0]
+                if filename not in transectsProj:
+                    try:
+                        transect = Transect(self._transectsPath, filename)
+                        srs = self.__getSpatialRef(transect)
+                        geogcs = srs.GetAttrValue("GEOGCS")
+                        datum = srs.GetAttrValue("DATUM")
+                        zone = srs.GetUTMZone()
+                        transectsProj[filename] = self.__getEPSG(filename, zone, geogcs, datum)
+                    except Exception as e:
+                        logging.error(e)
 
         logging.debug("Running SQL: \n{}".format(sqlTransectsFilename))
         self._db.forEachData(sqlTransectsFilename, setTransectEPSG)
@@ -111,10 +117,9 @@ class UpdateGeom(object):
 
         logging.info("The column geom was created in {} seconds.".format(time.clock() - t0))
 
-    def __getEPSG(self, geogcs, zone):
-        GEOGCS = "GCS_SIRGAS_2000"
-        if geogcs.upper() != GEOGCS:
-            raise RuntimeError("GEOGCS '{}' not found.".format(geogcs))
+    def __getEPSG(self, filename, zone, geogcs, datum):
+        if not (search("(GCS)*(SIRGAS)*(2000)", geogcs) or search("(D)*(SIRGAS)*(2000)", datum)):
+            raise RuntimeError("GEOGCS '{}' not found in '{}'.".format(geogcs, filename))
 
         sirgas = {
             14: "31968",
@@ -176,13 +181,9 @@ if __name__ == "__main__":
     try:
         args = UpdateGeom.processCmdLine()
         cs = UpdateGeom(transectsPath=args.transects, dbname=args.dbname, user=args.user, password=args.password,
-                        host=args.host, tablespace=args.tablespace,
+                        host=args.ip, tablespace=args.tablespace,
                         tableName=args.tablename, transenctField=args.transectfield, xfield=args.xfield,
                         yfield=args.yfield, xdim=args.xdim, ydim=args.ydim)
         cs.run(log=args.log)
-
-        # cs = UpdateGeom(xdim=50, ydim=50, transectsPath=r"C:\Users\EBA\Documents\data\TRANSECTS", dbname="eba",
-        #                 user="postgres", password="postgres", host="localhost")
-        # cs.run()
     except Exception as e:
         raise RuntimeError("Unexpected error: {}".format(e))
