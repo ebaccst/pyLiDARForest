@@ -166,8 +166,7 @@ class UpdateGeom(object):
             return srs
 
     def __getSetSRIDSQL(self):
-        return "ALTER TABLE {} ALTER COLUMN geom TYPE geometry(Polygon) USING ST_SetSRID(geom, {});".format(
-            self._tableName, self._epsg)
+        return "SELECT UpdateGeometrySRID('public', '{}', 'geom', {});".format(self._tableName, self._epsg)
 
     def __getTransformSQL(self, epsg):
         return """
@@ -199,7 +198,8 @@ class UpdateGeom(object):
            UPDATE {0}
            SET geom = ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[ST_MakePoint({1}, {2}), ST_MakePoint({1} + {3}, {2}), ST_MakePoint({1} + {3}, {2} + {4}), ST_MakePoint({1}, {2} + {4}), ST_MakePoint({1}, {2})])), {5})
            WHERE {6} = '{7}';
-           """.format(self._tableName, self._xfield, self._yfield, self._xdim, self._ydim, proj, self._transectField, filename)
+           """.format(self._tableName, self._xfield, self._yfield, self._xdim, self._ydim, proj, self._transectField,
+                      filename)
 
     def __hasExtension(self, filename, extension):
         return filename.lower().endswith(extension, -1 * len(extension))
