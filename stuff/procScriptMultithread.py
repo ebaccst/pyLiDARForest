@@ -74,7 +74,7 @@ def ProcessFile(program,fname,options,verbose,batchProcess,commandonly):
             f.write(out)
         if err != None:
             f.write("Error: ")
-            f.write(error)
+            f.write(err)
         f.close()
         print(commandLine)
 
