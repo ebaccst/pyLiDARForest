@@ -8,27 +8,32 @@ from osgeo import ogr, osr, gdal
 
 
 class Reproject(object):
-
     @staticmethod
     def processCmdLine():
         parser = argparse.ArgumentParser(description="Reproject a Transect using the bounding box coordinates.")
         parser.add_argument("-t", "--transects", type=str, help="Path of the Transects.")
+        parser.add_argument("-e", "--epsg", type=int, help="EPSG code.")
         parser.add_argument("-p", "--path", type=str, help="Path of the files to process.")
-        parser.add_argument("-o", "--output", type=str, help="Destination path of output files. Default 'path + _reprojected'.")
+        parser.add_argument("-o", "--output", type=str,help="Destination path of output files. Default 'path + _reprojected'.")
         parser.add_argument("-l", "--log", type=str, help="Logs to a file. Default 'console'.")
         parser.add_argument("-d", "--driver", type=str, help="GDAL drivers. Default 'ogr'.")
 
         args = parser.parse_args()
-        if not os.path.isdir(args.transects):
+        if not (args.transects or args.epsg) or (args.transects and args.epsg):
+            raise RuntimeError("Argument 'transects' or 'epsg' is mandatory.")
+
+        if args.transects and not os.path.isdir(args.transects):
             raise RuntimeError("Directory '{}' not found".format(args.transects))
+
         if not os.path.isdir(args.path):
             raise RuntimeError("Directory '{}' not found".format(args.path))
         return args
 
-    def __init__(self, transectsPath, metricsPath, outputPath):
+    def __init__(self, transectsPath, metricsPath, outputPath, epsg):
         self._transectsPath = transectsPath
         self._metricsPath = metricsPath
         self._outputPath = outputPath
+        self._epsg = epsg
 
     def run(self, log=None, driver="ogr"):
         if log:
@@ -54,7 +59,10 @@ class Reproject(object):
         t0 = time.clock()
         for transect in transects:
             try:
-                self.__reproject(transect, reprojectFunction)
+                if self._epsg:
+                    self.__reprojectUsingSpatialRef(transect, reprojectFunction)
+                else:
+                    self.__reprojectUsingBoundingBox(transect, reprojectFunction)
             except Exception as e:
                 logging.error("Error to process '{}': {}".format(transect.path, e))
                 errors[transect] = e
@@ -66,9 +74,8 @@ class Reproject(object):
 
         logging.info("The transects were reprojected in {} seconds.".format(time.clock() - t0))
 
-    def __gdal(self, transect, boundingBoxLayer):
+    def __gdal(self, transect, outputSrs):
         # Define target SRS
-        outputSrs = boundingBoxLayer.GetSpatialRef()
         outputSrs.MorphToESRI()
         outputWkt = outputSrs.ExportToWkt()
 
@@ -81,10 +88,10 @@ class Reproject(object):
 
         # Call AutoCreateWarpedVRT() to fetch default values for target raster dimensions and geotransform
         tempDataset = gdal.AutoCreateWarpedVRT(inputTransect,
-                                                None,  # src_wkt : left to default value --> will use the one from source
-                                                outputWkt,
-                                                resampling,
-                                                errorThreshold)
+                                               None,  # src_wkt : left to default value --> will use the one from source
+                                               outputWkt,
+                                               resampling,
+                                               errorThreshold)
 
         outputGeotransform = tempDataset.GetGeoTransform()
 
@@ -134,10 +141,7 @@ class Reproject(object):
     def __isPolygonDir(self, dirname):
         return dirname.startswith("POLIGONO")
 
-    def __ogr(self, transect, boundingBoxLayer):
-        # Define target SRS
-        outputSpatialReference = boundingBoxLayer.GetSpatialRef()
-
+    def __ogr(self, transect, outputSpatialReference):
         # Open the source layer
         inputTransectDataset = ogr.Open(transect.path)
         ogrDriver = inputTransectDataset.GetDriver()
@@ -190,22 +194,29 @@ class Reproject(object):
         inputTransectDataset.Destroy()
         outputTransectDataset.Destroy()
 
-    def __reproject(self, transect, __sof__):
+    def __reprojectUsingBoundingBox(self, transect, __sof__):
         # OGR driver
         ogrDriver = ogr.GetDriverByName("ESRI Shapefile")
         # Open the bounding box dataset
         boundingBoxDataset = ogrDriver.Open(self.__getTransectBoudingBox(transect))
         boundingBoxLayer = boundingBoxDataset.GetLayer()
+        outputSpatialReference = boundingBoxLayer.GetSpatialRef()
         # Run reproject
-        __sof__(transect, boundingBoxLayer)
+        __sof__(transect, outputSpatialReference)
         # Destroy dataset
         boundingBoxDataset.Destroy()
+
+    def __reprojectUsingSpatialRef(self, transect, __sof__):
+        outSpatialRef = osr.SpatialReference()
+        outSpatialRef.ImportFromEPSG(self._epsg)
+        __sof__(transect, outSpatialRef)
 
 if __name__ == "__main__":
     # C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\reproject_transect.py" -t "G:\TRANSECTS" -p "E:\heitor.guerra\TESTE_GDAL" -d "gdal"
     try:
         args = Reproject.processCmdLine()
-        reproject = Reproject(args.transects, args.path, args.output or args.path + "_reprojected")
+        reproject = Reproject(transectsPath=args.transects, epsg=args.epsg, metricsPath=args.path,
+                              outputPath=args.output or args.path + "_reprojected")
         reproject.run(log=args.log, driver=args.driver)
     except Exception as e:
         raise RuntimeError("Unexpected error: {}".format(e))
