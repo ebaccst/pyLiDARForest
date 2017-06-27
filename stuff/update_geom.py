@@ -34,16 +34,17 @@ class UpdateGeom(object):
             raise RuntimeError("Directory '{}' not found".format(args.transects))
         return args
 
-    def __init__(self, transectsPath, dbname, user="postgres", password="", host="localhost", tablespace="pg_default",
-                 tableName="metrics", transenctField="filename", xfield="x", yfield="y", xdim=5000, ydim=5000,
-                 epsg=4674):
+    def __init__(self, transectsPath, db,tableName="metrics", transenctField="filename", xfield="x", yfield="y", xdim=5000, ydim=5000,
+                 epsg=4674, log=None):
         if not transectsPath:
             raise RuntimeError("Argument 'transectsPath' is mandatory.")
 
-        if not dbname:
-            raise RuntimeError("Argument 'dbname' is mandatory.")
+        if log:
+            logging.basicConfig(filename=log, level=logging.INFO)
+        else:
+            logging.basicConfig(level=logging.INFO)
 
-        self._db = dbutils(host, user, password, dbname, tablespace)
+        self._db = db
         self._transectsPath = transectsPath
         self._tableName = tableName
         self._transectField = transenctField
@@ -53,15 +54,7 @@ class UpdateGeom(object):
         self._ydim = ydim
         self._epsg = epsg
 
-    def run(self, log=None):
-        if log:
-            logging.basicConfig(filename=log, level=logging.INFO)
-        else:
-            logging.basicConfig(level=logging.INFO)
-
-        logging.info("Start update..")
-        t0 = time.clock()
-
+    def run(self):
         schema = self._db.getTableSchema(self._tableName)
         if "geom" in schema:
             dropResult = self._db.execute(self.__getDropColumnSQL(), autocommit=True)
@@ -70,6 +63,17 @@ class UpdateGeom(object):
         addResult = self._db.execute(self.__getAddGeomColumnSQL(), autocommit=True)
         logging.info("Add column SQL result: {}".format(str(addResult)))
 
+        errors = self.updateGeom()
+
+        setSRIDResult = self._db.execute(self.__getSetSRIDSQL(), autocommit=True)
+        logging.info("Set SRID SQL result: {}".format(str(setSRIDResult)))
+
+        if len(errors) > 0:
+            logging.warning("Files with problems: ")
+            for filename, error in errors.iteritems():
+                logging.warning("{} with {}".format(filename, error))
+
+    def updateGeom(self):
         transectsProj = {}
 
         def setTransectEPSG(row):
@@ -96,7 +100,6 @@ class UpdateGeom(object):
             except Exception as e:
                 logging.error("Error to process '{}': {}".format(filename, e))
                 errors[filename] = e
-
         projections = self._db.getdata(self.__getDistinctEPSGSQL())
         for epsg in projections:
             try:
@@ -107,16 +110,7 @@ class UpdateGeom(object):
             except Exception as e:
                 logging.error("Error to process '{}': {}".format(epsg, e))
                 errors[epsg] = e
-
-        setSRIDResult = self._db.execute(self.__getSetSRIDSQL(), autocommit=True)
-        logging.info("Set SRID SQL result: {}".format(str(setSRIDResult)))
-
-        if len(errors) > 0:
-            logging.warning("Files with problems: ")
-            for filename, error in errors.iteritems():
-                logging.warning("{} with {}".format(filename, error))
-
-        logging.info("The column geom was created in {} seconds.".format(time.clock() - t0))
+        return errors
 
     def __getAddGeomColumnSQL(self):
         return "ALTER TABLE {} ADD COLUMN geom geometry(Polygon);".format(self._tableName)
@@ -210,12 +204,15 @@ class UpdateGeom(object):
 
 if __name__ == "__main__":
     try:
-        args = UpdateGeom.processCmdLine()
-        up = UpdateGeom(transectsPath=args.transects, dbname=args.dbname, user=args.user, password=args.password,
-                        host=args.ip, tablespace=args.tablespace,
-                        tableName=args.tablename, transenctField=args.transectfield, xfield=args.xfield,
-                        yfield=args.yfield, xdim=args.xdim, ydim=args.ydim, epsg=args.epsg)
+        logging.info("Start update..")
+        t0 = time.clock()
 
-        up.run(log=args.log)
+        args = UpdateGeom.processCmdLine()
+        db = dbutils(args.ip, args.user, args.password, args.dbname, args.tablespace)
+        up = UpdateGeom(transectsPath=args.transects, db=db, tableName=args.tablename, transenctField=args.transectfield, xfield=args.xfield,
+                        yfield=args.yfield, xdim=args.xdim, ydim=args.ydim, epsg=args.epsg, log=args.log)
+        up.run()
+
+        logging.info("The column geom was created in {} seconds.".format(time.clock() - t0))
     except Exception as e:
         raise RuntimeError("Unexpected error: {}".format(e))
