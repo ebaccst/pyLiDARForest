@@ -81,7 +81,7 @@ def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=Tr
     out_vector = {}
     if export_result:
         out_path, vector_filename = os.path.split(vector_path)
-        out_path = os.path.join(out_path, "zona_stats_" + vector_filename)
+        out_path = os.path.join(out_path, "zonal_stats_" + vector_filename)
         out_layer_name = os.path.splitext(vector_filename)[0]
 
         out_driver = vds.GetDriver()
@@ -214,7 +214,7 @@ def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=Tr
 
 if __name__ == "__main__":
     # python zonal_stats.py QDR_A01aA06.shp NP_T-0400_dn_g_n_ch1_5CHM_1m.tif
-    parser = argparse.ArgumentParser(description="ZONA STATS")
+    parser = argparse.ArgumentParser(description="ZONAL STATS")
     parser.add_argument("-v", "--vectorpath", type=str, required=True, help="Vector file.")
     parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
     parser.add_argument("-n", "--nodata", type=int, default=-9999.0, help="No data value. Default -9999.0.")
@@ -235,7 +235,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    logging.info("Running 'zona_stats' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
+    logging.info("Running 'zonal_stats' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
     stats = zonal_stats(args.vectorpath, args.rasterpath, args.nodata, args.export, args.globalextent)
 
     try:
@@ -246,15 +246,3 @@ if __name__ == "__main__":
         import json
 
         logging.warning(json.dumps(stats, indent=2))
-
-    # logging.basicConfig(level=logging.INFO)
-    # stats = zonal_stats(r"E:\heitor.guerra\ZonalStats\shp\ABUF_CAJ_01.shp", r"H:\CHM_1m_original_ASC_reprojected\NP_T-0368_dn_g_n_ch1_5CHM_1m.asc")
-    #
-    # try:
-    #     from pandas import DataFrame
-    #
-    #     logging.info(DataFrame(stats))
-    # except ImportError:
-    #     import json
-    #
-    #     logging.warning(json.dumps(stats, indent=2))
