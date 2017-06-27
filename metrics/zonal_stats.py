@@ -18,8 +18,9 @@ Options:
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
 import numpy as np
-import sys
 import os
+import argparse
+import logging
 
 gdal.PushErrorHandler('CPLQuietErrorHandler')
 
@@ -40,7 +41,7 @@ def bbox_to_pixel_offsets(gt, bbox):
     return (x1, y1, xsize, ysize)
 
 
-def zonal_stats(vector_path, raster_path, nodata_value=None, global_src_extent=False, export_result=False):
+def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=True, global_src_extent=False):
     rds = gdal.Open(raster_path, GA_ReadOnly)
     assert (rds)
     rb = rds.GetRasterBand(1)
@@ -94,15 +95,15 @@ def zonal_stats(vector_path, raster_path, nodata_value=None, global_src_extent=F
         output_layer = out_dataset.CreateLayer(out_layer_name, in_sref, in_layer_defn.GetGeomType())
 
         fields = {
-            'min': float,
-            'mean': float,
-            'max': float,
-            'std': float,
-            'sum': float,
-            'count': int,
-            'fid': int,
-            'area': float,
-            'filename': str
+            'zs_min': float,
+            'zs_mean': float,
+            'zs_max': float,
+            'zs_std': float,
+            'zs_sum': float,
+            'zs_count': int,
+            'zs_fid': int,
+            'zs_area': float,
+            'zs_file': str
         }
 
         for i in range(0, in_layer_defn.GetFieldCount()):
@@ -169,20 +170,20 @@ def zonal_stats(vector_path, raster_path, nodata_value=None, global_src_extent=F
         )
 
         feature_stats = {
-            'min': float(masked.min()),
-            'mean': float(masked.mean()),
-            'max': float(masked.max()),
-            'std': float(masked.std()),
-            'sum': float(masked.sum()),
-            'count': int(masked.count()),
-            'fid': int(feat.GetFID()),
-            'area': float(geometry.Area())
+            'zs_min': float(masked.min()),
+            'zs_mean': float(masked.mean()),
+            'zs_max': float(masked.max()),
+            'zs_std': float(masked.std()),
+            'zs_sum': float(masked.sum()),
+            'zs_count': int(masked.count()),
+            'zs_fid': int(feat.GetFID()),
+            'zs_area': float(geometry.Area())
         }
 
         stats.append(feature_stats)
 
         if export_result:
-            feature_stats["filename"] = out_vector["out_layer_name"]
+            feature_stats["zs_file"] = out_vector["out_layer_name"]
             out_layer = out_vector["output_layer"]
             out_layer_defn = out_layer.GetLayerDefn()
             geom = feat.GetGeometryRef()
@@ -191,7 +192,7 @@ def zonal_stats(vector_path, raster_path, nodata_value=None, global_src_extent=F
             out_feature.SetGeometry(geom)
             for i in range(0, out_layer_defn.GetFieldCount()):
                 name_ref = out_layer_defn.GetFieldDefn(i).GetNameRef()
-                field_value = None
+                logging.info("Copying field '{}' to '{}'".format(name_ref, feature_stats["zs_file"]))
                 if name_ref in feature_stats:
                     field_value = feature_stats[name_ref]
                 else:
@@ -212,15 +213,48 @@ def zonal_stats(vector_path, raster_path, nodata_value=None, global_src_extent=F
 
 
 if __name__ == "__main__":
-    stats = zonal_stats(r"E:\heitor.guerra\ZonalStats\shp\QDR_A01aA06.shp",
-                        r"E:\heitor.guerra\ZonalStats\asc_reprojected\NP_T-0400_dn_g_n_ch1_5CHM_1m.asc",
-                        nodata_value=-9999.0, export_result=True)
+    # python zonal_stats.py QDR_A01aA06.shp NP_T-0400_dn_g_n_ch1_5CHM_1m.tif
+    parser = argparse.ArgumentParser(description="ZONA STATS")
+    parser.add_argument("-v", "--vectorpath", type=str, required=True, help="Vector file.")
+    parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
+    parser.add_argument("-n", "--nodata", type=int, default=-9999.0, help="No data value. Default -9999.0.")
+    parser.add_argument("-e", "--export", type=bool, default=True, help="Export result as a new file. Default True.")
+    parser.add_argument("-g", "--globalextent", type=bool, default=False,
+                        help="Create an in-memory numpy array of the source raster data. Default False.")
+    parser.add_argument("-l", "--log", type=str, help="Logs to a file. Default 'console'.")
+    args = parser.parse_args()
+
+    if not os.path.isfile(args.vectorpath):
+        raise RuntimeError("Vector '{}' not found".format(args.vectorpath))
+    if not os.path.isfile(args.rasterpath):
+        raise RuntimeError("Raster '{}' not found".format(args.rasterpath))
+
+    if args.log:
+        logging.basicConfig(filename=args.log, level=logging.INFO)
+        logging.getLogger().addHandler(logging.StreamHandler())
+    else:
+        logging.basicConfig(level=logging.INFO)
+
+    logging.info("Running 'zona_stats' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
+    stats = zonal_stats(args.vectorpath, args.rasterpath, args.nodata, args.export, args.globalextent)
 
     try:
         from pandas import DataFrame
 
-        print DataFrame(stats)
+        logging.info(DataFrame(stats))
     except ImportError:
         import json
 
-        print json.dumps(stats, indent=2)
+        logging.warning(json.dumps(stats, indent=2))
+
+    # logging.basicConfig(level=logging.INFO)
+    # stats = zonal_stats(r"E:\heitor.guerra\ZonalStats\shp\ABUF_CAJ_01.shp", r"H:\CHM_1m_original_ASC_reprojected\NP_T-0368_dn_g_n_ch1_5CHM_1m.asc")
+    #
+    # try:
+    #     from pandas import DataFrame
+    #
+    #     logging.info(DataFrame(stats))
+    # except ImportError:
+    #     import json
+    #
+    #     logging.warning(json.dumps(stats, indent=2))
