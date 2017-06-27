@@ -148,10 +148,13 @@ class Reproject(object):
         inputTransectLayer = inputTransectDataset.GetLayer()
         inputTransectDefn = inputTransectLayer.GetLayerDefn()
         inputTransectFeatures = inputTransectLayer.GetNextFeature()
+        inputSpatialReference = outputSpatialReference
+        if self._epsg:
+            inputSpatialReference = inputTransectLayer.GetSpatialRef()
 
         # Create the CoordinateTransformation
         logging.info("Coordinate Transformation '{}'".format(outputSpatialReference.ExportToWkt()))
-        outputCoordtransformation = osr.CoordinateTransformation(outputSpatialReference, outputSpatialReference)
+        outputCoordtransformation = osr.CoordinateTransformation(inputSpatialReference, outputSpatialReference)
 
         # Create the output layer
         outputFilepath = os.path.join(self._outputPath, transect.file)
