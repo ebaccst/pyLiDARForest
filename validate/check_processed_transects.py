@@ -1,7 +1,7 @@
 import os
 import time
 import logging
-from transect import Transect
+from stuff.transect import Transect
 
 
 def has_extension(file, extension):
