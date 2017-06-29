@@ -2,12 +2,12 @@
 Zonal Statistics
 Vector-Raster Analysis
 
-Original version: Copyright 2013 Matthew Perry
+Reference: Matthew Perry (https://gist.githubusercontent.com/perrygeo/5667173/raw/763e1e50208e8c853f46e57cd07bb07b424fed10/zonal_stats.py)
 
 Copyright 2017 Heitor G. Carneiro
 
 Usage:
-  zonal_stats.py VECTOR RASTER
+  zonal_stats.py -v "<VECTOR>" -r "<RASTER>"
   zonal_stats.py -h | --help
   zonal_stats.py --version
 
@@ -17,12 +17,21 @@ Options:
 """
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
+from pandas import DataFrame
 import numpy as np
 import os
 import argparse
 import logging
 
 gdal.PushErrorHandler('CPLQuietErrorHandler')
+
+
+def cmd_header():
+    return "Zonal Statistics\n" \
+           "Vector-Raster Analysis\n" \
+           "Reference: Matthew Perry " \
+           "(https://gist.githubusercontent.com/perrygeo/5667173/raw/763e1e50208e8c853f46e57cd07bb07b424fed10/zonal_stats.py)\n" \
+           "Copyright 2017 Heitor G. Carneiro"
 
 
 def bbox_to_pixel_offsets(gt, bbox):
@@ -170,15 +179,23 @@ def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=Tr
         )
 
         feature_stats = {
-            'zs_min': float(masked.min()),
-            'zs_mean': float(masked.mean()),
-            'zs_max': float(masked.max()),
-            'zs_std': float(masked.std()),
-            'zs_sum': float(masked.sum()),
-            'zs_count': int(masked.count()),
             'zs_fid': int(feat.GetFID()),
             'zs_area': float(geometry.Area())
         }
+
+        try:
+            masked_stats = {
+                'zs_min': float(masked.min()),
+                'zs_mean': float(masked.mean()),
+                'zs_max': float(masked.max()),
+                'zs_std': float(masked.std()),
+                'zs_sum': float(masked.sum()),
+                'zs_count': int(masked.count()),
+            }
+
+            feature_stats.update(masked_stats)
+        except Exception as masked_error:
+            logging.error("Error to np.ma.MaskedArray: {}".format(str(masked_error)))
 
         stats.append(feature_stats)
 
@@ -214,7 +231,7 @@ def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=Tr
 
 if __name__ == "__main__":
     # python zonal_stats.py QDR_A01aA06.shp NP_T-0400_dn_g_n_ch1_5CHM_1m.tif
-    parser = argparse.ArgumentParser(description="ZONAL STATS")
+    parser = argparse.ArgumentParser(description=cmd_header())
     parser.add_argument("-v", "--vectorpath", type=str, required=True, help="Vector file.")
     parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
     parser.add_argument("-n", "--nodata", type=int, default=-9999.0, help="No data value. Default -9999.0.")
@@ -235,14 +252,9 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    logging.info("Running 'zonal_stats' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
-    stats = zonal_stats(args.vectorpath, args.rasterpath, args.nodata, args.export, args.globalextent)
-
     try:
-        from pandas import DataFrame
-
+        logging.info("Running 'zonal_stats' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
+        stats = zonal_stats(args.vectorpath, args.rasterpath, args.nodata, args.export, args.globalextent)
         logging.info(DataFrame(stats))
-    except ImportError:
-        import json
-
-        logging.warning(json.dumps(stats, indent=2))
+    except Exception as e:
+        logging.error("Error to process '{}' and '{}': {}".format(args.vectorpath, args.rasterpath, str(e)))
