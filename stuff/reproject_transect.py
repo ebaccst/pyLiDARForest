@@ -15,8 +15,9 @@ class Reproject(object):
         parser.add_argument("-e", "--epsg", type=int, help="EPSG code.")
         parser.add_argument("-p", "--path", type=str, help="Path of the files to process.")
         parser.add_argument("-o", "--output", type=str,help="Destination path of output files. Default 'path + _reprojected'.")
+        parser.add_argument("-d", "--driver", type=str, default="ogr", help="GDAL drivers. Default 'ogr'.")
+        parser.add_argument("-i", "--insertnumber", type=bool, default=False, help="Insert transect number. Default 'False'.")
         parser.add_argument("-l", "--log", type=str, help="Logs to a file. Default 'console'.")
-        parser.add_argument("-d", "--driver", type=str, help="GDAL drivers. Default 'ogr'.")
 
         args = parser.parse_args()
         if not (args.transects or args.epsg) or (args.transects and args.epsg):
@@ -29,11 +30,12 @@ class Reproject(object):
             raise RuntimeError("Directory '{}' not found".format(args.path))
         return args
 
-    def __init__(self, transectsPath, metricsPath, outputPath, epsg):
+    def __init__(self, transectsPath, metricsPath, outputPath, epsg, insertNumber):
         self._transectsPath = transectsPath
         self._metricsPath = metricsPath
         self._outputPath = outputPath
         self._epsg = epsg
+        self._insertNumber = insertNumber
 
     def run(self, log=None, driver="ogr"):
         if log:
@@ -142,6 +144,9 @@ class Reproject(object):
         return dirname.startswith("POLIGONO")
 
     def __ogr(self, transect, outputSpatialReference):
+        numberNameRef = "TRANSECT"
+        numberFieldValue = "T-{}".format(transect.number)
+
         # Open the source layer
         inputTransectDataset = ogr.Open(transect.path)
         ogrDriver = inputTransectDataset.GetDriver()
@@ -163,14 +168,17 @@ class Reproject(object):
         if os.path.exists(outputFilepath):
             ogrDriver.DeleteDataSource(outputFilepath)
         outputTransectDataset = ogrDriver.CreateDataSource(outputFilepath)
-        outputTransectLayer = outputTransectDataset.CreateLayer("T-{}".format(transect.number),
+        outputTransectLayer = outputTransectDataset.CreateLayer(numberFieldValue,
                                                                 outputSpatialReference,
                                                                 inputTransectDefn.GetGeomType())
-
         # Add fields
         for i in range(0, inputTransectDefn.GetFieldCount()):
             field_defn = inputTransectDefn.GetFieldDefn(i)
             outputTransectLayer.CreateField(field_defn)
+
+        if self._insertNumber:
+            field = ogr.FieldDefn(numberNameRef, ogr.OFTString)
+            outputTransectLayer.CreateField(field)
 
         # Get the output layer's feature definition
         outputTransectDefn = outputTransectLayer.GetLayerDefn()
@@ -187,6 +195,8 @@ class Reproject(object):
             outputFeature.SetGeometry(geom)
             for i in range(0, outputTransectDefn.GetFieldCount()):
                 outputFeature.SetField(outputTransectDefn.GetFieldDefn(i).GetNameRef(), inputTransectFeatures.GetField(i))
+            if self._insertNumber:
+                outputFeature.SetField(numberNameRef, numberFieldValue)
             # add the feature to the data
             outputTransectLayer.CreateFeature(outputFeature)
             # dereference the features and get the next input feature
@@ -218,8 +228,7 @@ if __name__ == "__main__":
     # C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\reproject_transect.py" -t "G:\TRANSECTS" -p "E:\heitor.guerra\TESTE_GDAL" -d "gdal"
     try:
         args = Reproject.processCmdLine()
-        reproject = Reproject(transectsPath=args.transects, epsg=args.epsg, metricsPath=args.path,
-                              outputPath=args.output or args.path + "_reprojected")
+        reproject = Reproject(transectsPath=args.transects, epsg=args.epsg, metricsPath=args.path, outputPath=args.output or args.path + "_reprojected", insertNumber=args.insertnumber)
         reproject.run(log=args.log, driver=args.driver)
     except Exception as e:
         raise RuntimeError("Unexpected error: {}".format(e))
