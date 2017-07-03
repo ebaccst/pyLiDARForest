@@ -27,6 +27,7 @@ class CHMLoader(object):
         parser.add_argument("-xd", "--xdim", type=int, help="X dimension. Default '5000'.")
         parser.add_argument("-yd", "--ydim", type=int, help="Y dimension. Default '5000'.")
         parser.add_argument("-e", "--epsg", type=int, help="EPSG of new column. Default '4674'.")
+        parser.add_argument("-sql", type=bool, default=False, help="Export SQL. Default 'False'.")
         parser.add_argument("-l", "--log", type=str, help="Logs to a file. Default 'console'.")
 
         args = parser.parse_args()
@@ -66,13 +67,16 @@ class CHMLoader(object):
                 transects[transect.number] = self.__csv(transect.path)
         return transects
 
-    def load(self):
+    def load(self, export):
         self.__loadTransectsId()
 
         for transect, records in self.transects.iteritems():
             try:
                 logging.info("Loading CHM of transect {}".format(transect))
-                self.__process(transect, records)
+                if export:
+                    self.__processSQL(transect, records)
+                else:
+                    self.__process(transect, records)
             except Exception as err:
                 logging.error("Error to process {}: {}".format(transect, err))
                 self._errors[transect] = err
@@ -88,6 +92,13 @@ class CHMLoader(object):
         if len(self._insertRecords) > self._queryLimit:
             self.__consumerInsert()
 
+    def __consumerSQL(self, transect):
+        if len(self._updateRecords) > self._queryLimit:
+            self.__consumerUpdateSQL(transect)
+
+        if len(self._insertRecords) > self._queryLimit:
+            self.__consumerInsertSQL(transect)
+
     def __consumerInsert(self):
         logging.info("Adding {} records".format(len(self._insertRecords)))
         insert = "".join(self._insertRecords)
@@ -98,6 +109,18 @@ class CHMLoader(object):
             logging.info("SQL executed with success")
         del self._insertRecords[:]
 
+    def __consumerInsertSQL(self, transect):
+        logging.info("Adding {} records".format(len(self._insertRecords)))
+
+        with open(transect + ".sql", "a") as f:
+            for line in self._insertRecords:
+                try:
+                    f.write(line + "\n")
+                    logging.info("Adding SQL executed with success.")
+                except Exception as writeErr:
+                    logging.error("Error to update: '{}'".format(str(writeErr)))
+        del self._insertRecords[:]
+
     def __consumerUpdate(self):
         logging.info("Updating {} records".format(len(self._updateRecords)))
         update = "".join(self._updateRecords)
@@ -106,6 +129,18 @@ class CHMLoader(object):
             logging.error("Error to execute: '{}'".format(update))
         else:
             logging.info("SQL executed with success")
+        del self._updateRecords[:]
+
+    def __consumerUpdateSQL(self, transect):
+        logging.info("Updating {} records".format(len(self._updateRecords)))
+
+        with open(transect + ".sql", "a") as f:
+            for line in self._updateRecords:
+                try:
+                    f.write(line + "\n")
+                    logging.info("Update SQL executed with success.")
+                except Exception as writeErr:
+                    logging.error("Error to update: '{}'".format(str(writeErr)))
         del self._updateRecords[:]
 
     def __csv(self, path):
@@ -168,6 +203,16 @@ class CHMLoader(object):
         if len(self._insertRecords) > 0:
             self.__consumerInsert()
 
+    def __processSQL(self, transect, records):
+        while records:
+            self.__producer(records.pop(), transect)
+            self.__consumerSQL(transect)
+
+        if len(self._updateRecords) > 0:
+            self.__consumerUpdateSQL(transect)
+        if len(self._insertRecords) > 0:
+            self.__consumerInsertSQL(transect)
+
     def __producer(self, chm_dict, transect):
         where = self.__getWhereCodition(transect, chm_dict[self._x], chm_dict[self._y])
         existsQuery = "(SELECT EXISTS(SELECT 1 FROM {} WHERE {}))".format(self._tableName, where)
@@ -207,30 +252,22 @@ if __name__ == "__main__":
         db = dbutils(args.ip, args.user, args.password, args.dbname, "pg_default")
 
         loader = CHMLoader(args.csv, db, log=args.log)
-        loader.load()
+        loader.load(args.sql)
 
-        # up = UpdateGeom(args.transects, db, args.tablename, args.transectfield, args.xfield, args.yfield, args.xdim,
-        #                 args.ydim, args.epsg, args.log + "_geom")
-        # upErrors = up.updateGeom()
+        up = UpdateGeom(args.transects, db, args.tablename, args.transectfield, args.xfield, args.yfield, args.xdim,
+                        args.ydim, args.epsg, args.log + "_geom")
+        upErrors = up.updateGeom()
 
         if len(loader.errors) > 0:
             logging.warning("Files with problems when load CHM: ")
             for filename, error in loader.errors.iteritems():
                 logging.warning("{} with {}".format(filename, error))
 
-        # if len(upErrors) > 0:
-        #     logging.warning("Files with problems when update geom: ")
-        #     for filename, error in upErrors.iteritems():
-        #         logging.warning("{} with {}".format(filename, error))
+        if len(upErrors) > 0:
+            logging.warning("Files with problems when update geom: ")
+            for filename, error in upErrors.iteritems():
+                logging.warning("{} with {}".format(filename, error))
 
         logging.info("The CHM was inserted in {} seconds.".format(time.clock() - t0))
-
-        # t0 = time.clock()
-        #
-        # db = dbutils("localhost", "eba", "ebaeba18", "eba", "pg_default")
-        # loader = CHMLoader(r"E:\heitor.guerra\CHM_50m_csv_TESTE", db)
-        # loader.load()
-        #
-        # logging.info("The CHM was inserted in {} seconds.".format(time.clock() - t0))
     except Exception as e:
         raise RuntimeError("Unexpected error: {}".format(e))
