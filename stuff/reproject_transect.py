@@ -52,7 +52,7 @@ class Reproject(object):
             transects = self.__getFiles(self.__isShapefile)
             reprojectFunction = self.__ogr
         elif driver == "gdal":
-            transects = self.__getFiles(self.__isAsc)
+            transects = self.__getFiles(self.__isGdal)
             reprojectFunction = self.__gdal
         else:
             raise RuntimeError("Driver '{}' not supported".format(driver))
@@ -132,10 +132,10 @@ class Reproject(object):
             raise RuntimeError("Directory '{}' not found".format(originalTransectDir))
 
     def __hasExtension(self, filename, extension):
-        return filename.endswith(extension, -1 * len(extension))
+        return filename.lower().endswith(extension.lower(), -1 * len(extension))
 
-    def __isAsc(self, filename):
-        return self.__hasExtension(filename, ".asc")
+    def __isGdal(self, filename):
+        return self.__hasExtension(filename, ".asc") or self.__hasExtension(filename, ".tif")
 
     def __isShapefile(self, filename):
         return self.__hasExtension(filename, ".shp")
