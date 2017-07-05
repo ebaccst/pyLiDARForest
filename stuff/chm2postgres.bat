@@ -1,1 +1,0 @@
-C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\importchm2postgres.py" -c "E:\heitor.guerra\CHM_50m_csv" -d "eba" -u "eba" -p "ebaeba18" -ip "localhost" -l "E:\heitor.guerra\chm.log"
