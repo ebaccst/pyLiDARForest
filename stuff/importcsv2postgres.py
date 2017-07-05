@@ -44,7 +44,7 @@ def chm(path, nullValue):
     index = "index"
     x = "x"
     y = "y"
-    csvValue = "csv"
+    csvValue = "CHM_av"
     value = "chm"
     nlines = 0
     data = {}
@@ -89,41 +89,48 @@ def metric(path, nullValue):
     return data
 
 
-def getMetricLine(data, fieldnames, nullvalue):
-    assert fieldnames
-    assert nullvalue
-
-    result = {}
-    for field in fieldnames:
-        if field in data:
-            result[field] = data[field]
-        else:
-            result[field] = nullvalue
-    return result
-
-
 def merge(metrics, chms, nullvalue):
     if len(metrics) <= 0 or len(chms) <= 0:
         logging.error("Error to process 'data'")
         sys.exit(0)
 
-    column = "chm"
-    indexName = "index"
-    indexValue = len(metrics)
+    columnIndex = "index"
+    columnX = "x"
+    columnY = "y"
+    columnCHM = "chm"
     fields = metrics.values()[0].keys()
-    fields.append(column)
+    fields.append(columnCHM)
+    processed = {}
 
     logging.info("Combine dictionaries 'metrics' with 'chm'")
-    for k, v in chms.iteritems():
-        chmValue = v[column]
-        if k in metrics:
-            logging.info("Update column '{}' with value {}".format(column, chmValue))
-            metrics[k][column] = chmValue
-        else:
-            v[indexName] = indexValue
-            logging.info("Insert index {} with chm {}".format(indexValue, chmValue))
-            metrics[k] = getMetricLine(v, fields, nullvalue)
-            indexValue += 1
+    for coordinate, metr in metrics.iteritems():
+        chmValue = nullvalue
+        if coordinate in chms:
+            isvalid = False
+            ignore = [columnIndex, columnX, columnY, columnCHM]
+            for attr, value in metr.iteritems():
+                if attr not in ignore and value != nullvalue:
+                    isvalid = True
+                    break
+
+            ch = chms[coordinate]
+            tmpValue = ch[columnCHM]
+            if isvalid:
+                logging.info("Update coordinate x({}) and y({}) with column '{}' = {}".format(ch[columnX], ch[columnY], columnCHM, tmpValue))
+                chmValue = tmpValue
+            else:
+                logging.error("Coordinate x({}) and y({}) with index({}) has only CHM({}) value".format(ch[columnX], ch[columnY], ch[columnIndex], tmpValue))
+            processed[coordinate] = True
+        metr[columnCHM] = chmValue
+
+    lenCHM = len(chms)
+    lenProcessed = len(processed)
+    if lenCHM != lenProcessed:
+        logging.error("Has {} values that only exists in CHM".format(lenCHM - lenProcessed))
+        for coord, ch, in chms.iteritems():
+            if coord not in processed:
+                logging.warning("Coordinate x({}) and y({}) with index({}) does not exist in metric, got CHM {}".format(ch[columnX], ch[columnY],ch[columnIndex], ch[columnCHM]))
+
     return fields, metrics.values()
 
 
@@ -151,3 +158,4 @@ if __name__ == '__main__':
     added = db.addrecs(args.tablename, fieldnames, data, args.skipfields, args.nullvalue)
     db.execute("UPDATE {0} SET filename = '{1}' WHERE filename IS NULL".format(args.tablename, os.path.basename(args.inputmetric)), True)
     logging.info('File {0} imported, {1} lines processed, {2} recs added'.format(args.inputmetric, len(data), added))
+
