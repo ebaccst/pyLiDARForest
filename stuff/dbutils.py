@@ -254,7 +254,11 @@ VALUES ('''.format(tablename,fieldssql[:-1])
                     continue
             sql=sqlini
             for field in fields:
-                sql+="'{0}',".format(rec[field])
+                value = rec[field]
+                if value == nullvalue:
+                    sql+="NULL,"
+                else:
+                    sql+="'{0}',".format(value)
             self.execute(sql[:-1]+')')
             count=count+1
             if (count % 1000) == 0:
