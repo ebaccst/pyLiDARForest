@@ -1,1 +1,4 @@
-C:\Anaconda\envs\geo\python.exe "E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\update_geom.py" -t "G:\TRANSECTS" -d "eba" -u "eba" -p "ebaeba18" -ip "localhost" -ts "pg_default" -n "metrics" -tf "filename" -xf "x" -yf "y" -xd "50" -yd "50" -e "4674" -l "E:\heitor.guerra\update_geom.log"
+SET python_exe=C:\Anaconda\envs\geo\python.exe
+SET script=E:\heitor.guerra\PycharmProjects\pyLiDARForest\stuff\update_geom.py
+
+%python_exe%  %script% -s "update_geom.sql" -l "E:\heitor.guerra\update_geom.log"
