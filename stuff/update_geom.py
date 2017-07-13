@@ -218,7 +218,7 @@ WHERE ST_SRID(geom) = {};
 
     def __getUpdateGeomColumnSQL(self, number, proj):
         return """UPDATE {0}
-SET geom = ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[ST_MakePoint({1}, {2}), ST_MakePoint({1} + {3}, {2}), ST_MakePoint({1} + {3}, {2} + {4}), ST_MakePoint({1}, {2} + {4}), ST_MakePoint({1}, {2})])), {5})
+SET geom = ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[ST_MakePoint({1} - {3}, {2} - {4}), ST_MakePoint({1} + {3}, {2} - {4}), ST_MakePoint({1} + {3}, {2} + {4}), ST_MakePoint({1} - {3}, {2} + {4}), ST_MakePoint({1} - {3}, {2} - {4})])), {5})
 WHERE {6} ~ '{7}';
 """.format(self._tablename, self._xfield, self._yfield, self._xdim, self._ydim, proj, self._transectfield, number)
 
