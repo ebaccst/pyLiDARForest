@@ -1,6 +1,5 @@
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
-from time import time
 import numpy as np
 import os
 import logging
@@ -19,12 +18,16 @@ class ZonalStats(object):
 
     def __init__(self, bouding_box, raster, server="localhost", dbname="eba", user="eba", password="ebaeba18"):
         conn_str = "PG: host=%s dbname=%s user=%s password=%s" % (server, dbname, user, password)
+
+        logging.info("Trying to connect PostgresSQL database: {}".format(conn_str))
         conn = ogr.Open(conn_str)
         assert conn
 
+        logging.info("Loading boundig box: {}".format(bouding_box))
         bb = conn.GetLayer(bouding_box)
         assert bb
 
+        logging.info("Loading raster: {}".format(raster))
         rds = gdal.Open(raster, GA_ReadOnly)
         assert rds
 
@@ -33,16 +36,17 @@ class ZonalStats(object):
         self._raster_ds = rds
         self._bb_defn = self._bb.GetLayerDefn()
         self._raster_filename = os.path.splitext(os.path.basename(raster))[0].lower()
-        self._fields = ('{}_min'.format(self._raster_filename), '{}_mean'.format(self._raster_filename),
-                        '{}_max'.format(self._raster_filename), '{}_std'.format(self._raster_filename),
-                        '{}_sum'.format(self._raster_filename), '{}_count'.format(self._raster_filename),
-                        '{}_area'.format(self._raster_filename))
 
-        newbb_name = "{}_{}".format(bouding_box, str(int(time())))
+        self._fields = ('min', 'mean', 'max', 'std', 'sum', 'count', 'area')
+        logging.info("Fields that will be created: {}".format(str(self._fields)))
+
         srs = self._bb.GetSpatialRef()
         geom_type = self._bb_defn.GetGeomType()
         gdal_options = ['OVERWRITE=YES']
-        self._newbb = self._conn.CreateLayer(newbb_name, srs, geom_type, gdal_options)
+
+        logging.info("Trying to create table: {}, {}, {}".format(self._raster_filename, str(geom_type), str(gdal_options)))
+        logging.info("With projection: {}".format(str(srs)))
+        self._newbb = self._conn.CreateLayer(self._raster_filename, srs, geom_type, gdal_options)
 
     def close(self):
         del self._bb
@@ -62,6 +66,10 @@ class ZonalStats(object):
 
         mem_drv = ogr.GetDriverByName('Memory')
         ogr_driver = gdal.GetDriverByName('MEM')
+
+        newbb_defn = self._newbb.GetLayerDefn()
+        field_count = newbb_defn.GetFieldCount()
+        logging.info("Copying '{}' fields to '{}'".format(field_count, self._raster_filename))
 
         feat = self._bb.GetNextFeature()
         while feat:
@@ -110,12 +118,8 @@ class ZonalStats(object):
             except Exception as masked_error:
                 logging.error("Error to np.ma.MaskedArray: {}".format(str(masked_error)))
 
-            newbb_defn = self._newbb.GetLayerDefn()
             new_feature = ogr.Feature(newbb_defn)
             new_feature.SetGeometry(geometry)
-
-            field_count = newbb_defn.GetFieldCount()
-            logging.info("Copying '{}' fields to '{}'".format(field_count, self._raster_filename))
             for i in range(0, field_count):
                 name_ref = newbb_defn.GetFieldDefn(i).GetNameRef()
                 if name_ref in feature_stats:
@@ -176,6 +180,11 @@ if __name__ == "__main__":
     vectorpath = "vegtype"
     rasterpath = r"E:\heitor.guerra\EVI\soma_EVI_QUANTILE_bioma_5880.tif"
 
-    zs = ZonalStats(vectorpath, rasterpath)
-    zs.extract()
-    zs.close()
+    try:
+        logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(vectorpath, rasterpath))
+        zs = ZonalStats(vectorpath, rasterpath)
+        zs.extract()
+        zs.close()
+        logging.info("Table created with success!")
+    except Exception as e:
+        logging.error("Error to process '{}' and '{}': {}".format(vectorpath, rasterpath, str(e)))
