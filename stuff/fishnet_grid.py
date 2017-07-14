@@ -27,7 +27,7 @@ def extent(raster):
     }
 
 
-def grid(outputGridfn, xmin, xmax, ymin, ymax, gridHeight, gridWidth, layer=None):
+def grid(outputGridfn, xmin, xmax, ymin, ymax, gridHeight, gridWidth, layer=None, boundingBoxGeom=None):
     # convert sys.argv to float
     xmin = float(xmin)
     xmax = float(xmax)
@@ -81,10 +81,11 @@ def grid(outputGridfn, xmin, xmax, ymin, ymax, gridHeight, gridWidth, layer=None
             poly.AddGeometry(ring)
 
             # add new geom to layer
-            outFeature = ogr.Feature(featureDefn)
-            outFeature.SetGeometry(poly)
-            outLayer.CreateFeature(outFeature)
-            outFeature = None
+            if not boundingBoxGeom or poly.Intersects(boundingBoxGeom):
+                outFeature = ogr.Feature(featureDefn)
+                outFeature.SetGeometry(poly)
+                outLayer.CreateFeature(outFeature)
+                outFeature = None
 
             # new envelope for next poly
             ringYtop = ringYtop - gridHeight
@@ -100,13 +101,34 @@ def grid(outputGridfn, xmin, xmax, ymin, ymax, gridHeight, gridWidth, layer=None
 
 
 def pg_layer(table, raster, srs, geom_type=ogr.wkbPolygon, server="localhost", dbname="eba", user="eba",
-             password="ebaeba18"):
+             password="ebaeba18", boudingBox=None):
     conn_str = "PG: host=%s dbname=%s user=%s password=%s" % (server, dbname, user, password)
+
+    logging.info("Trying to connect PostgresSQL database: {}".format(conn_str))
     conn = ogr.Open(conn_str)
-    layer = conn.CreateLayer(table, srs, geom_type, ['OVERWRITE=YES'])
+    assert conn
+
+    if boudingBox:
+        logging.info("Loading boundig box: {}".format(boudingBox))
+        bblayer = conn.GetLayer(boudingBox)
+        bbfeature = bblayer.GetNextFeature()
+
+        logging.info("Getting the first Geometry")
+        boudingBox = bbfeature.GetGeometryRef()
+
+        assert boudingBox
+
+    gdal_options = ['OVERWRITE=YES']
+
+    logging.info("Trying to create table: {}, {}, {}".format(table, str(geom_type), str(gdal_options)))
+    logging.info("With projection: {}".format(str(srs)))
+    layer = conn.CreateLayer(table, srs, geom_type, gdal_options)
 
     ext = extent(raster)
-    grid(table, ext["xmin"], ext["xmax"], ext["ymin"], ext["ymax"], ext["height"], ext["width"], layer)
+
+    logging.info("Creating a boundig box with extent: {}".format(str(ext)))
+    grid(table, ext["xmin"], ext["xmax"], ext["ymin"], ext["ymax"], ext["height"], ext["width"], layer, boudingBox)
+
     del conn
 
 
@@ -115,13 +137,14 @@ if __name__ == "__main__":
     # example run : $ python grid.py <full-path><output-shapefile-name>.shp xmin xmax ymin ymax gridHeight gridWidth
     # python grid.py grid.shp 992325.66 1484723.41 494849.32 781786.14 10000 10000
     #
-    parser = argparse.ArgumentParser(description="OGR Grid")
+    parser = argparse.ArgumentParser(description="OGR GRID")
     parser.add_argument("-s", "--server", type=str, default="localhost")
     parser.add_argument("-d", "--dbname", type=str, default="eba")
     parser.add_argument("-u", "--user", type=str, default="eba")
     parser.add_argument("-p", "--password", type=str, default="ebaeba18")
     parser.add_argument("-e", "--epsg", type=int, default=5880)
     parser.add_argument("-l", "--log", type=str, default=None, help="Logs to a file. Default 'console'.")
+    parser.add_argument("-b", "--bb", type=str, default=None, help="Bounding Box table.")
     parser.add_argument("-t", "--table", type=str, required=True)
     parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
     args = parser.parse_args()
@@ -133,10 +156,12 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.INFO)
 
     try:
-        logging.info("Running 'Grid' to path '{}'...".format(args.table))
+        logging.info("Running 'GRID' to path '{}'...".format(args.table))
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(args.epsg)
 
-        pg_layer(args.table, args.rasterpath, srs, server=args.server, dbname=args.dbname, user=args.user, password=args.password)
+        pg_layer(args.table, args.rasterpath, srs, server=args.server, dbname=args.dbname, user=args.user,
+                 password=args.password, boudingBox=args.bb)
+        logging.info("Table created with success!")
     except Exception as e:
-        logging.error("Error to 'Grid' file: {}".format(str(e)))
+        logging.error("Error to 'GRID' file: {}".format(str(e)))
