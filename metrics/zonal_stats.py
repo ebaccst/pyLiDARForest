@@ -234,7 +234,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=cmd_header())
     parser.add_argument("-v", "--vectorpath", type=str, required=True, help="Vector file.")
     parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
-    parser.add_argument("-n", "--nodata", type=int, default=-9999.0, help="No data value. Default -9999.0.")
+    parser.add_argument("-n", "--nodata", type=float, default=-9999.0, help="No data value. Default -9999.0.")
     parser.add_argument("-e", "--export", type=bool, default=True, help="Export result as a new file. Default True.")
     parser.add_argument("-g", "--globalextent", type=bool, default=False,
                         help="Create an in-memory numpy array of the source raster data. Default False.")

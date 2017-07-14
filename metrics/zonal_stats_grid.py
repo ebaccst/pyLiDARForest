@@ -1,7 +1,25 @@
+"""
+Zonal Statistics
+Vector-Raster Analysis
+
+Reference: Matthew Perry (https://gist.githubusercontent.com/perrygeo/5667173/raw/763e1e50208e8c853f46e57cd07bb07b424fed10/zonal_stats.py)
+
+Copyright 2017 Heitor G. Carneiro
+
+Usage:
+  zonal_stats.py -v "<VECTOR>" -r "<RASTER>"
+  zonal_stats.py -h | --help
+  zonal_stats.py --version
+
+Options:
+  -h --help     Show this screen.
+  --version     Show version.
+"""
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
 import numpy as np
 import os
+import argparse
 import logging
 
 gdal.PushErrorHandler('CPLQuietErrorHandler')
@@ -176,15 +194,24 @@ class ZonalStats(object):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    vectorpath = "vegtype"
-    rasterpath = r"E:\heitor.guerra\EVI\soma_EVI_QUANTILE_bioma_5880.tif"
+    parser = argparse.ArgumentParser(description=ZonalStats.cmd_header())
+    parser.add_argument("-v", "--vectorpath", type=str, required=True, help="Vector table.")
+    parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
+    parser.add_argument("-n", "--nodata", type=float, default=None, help="No data value. Default None.")
+    parser.add_argument("-l", "--log", type=str, default=None, help="Logs to a file. Default 'console'.")
+    args = parser.parse_args()
+
+    if args.log:
+        logging.basicConfig(filename=args.log, level=logging.INFO)
+        logging.getLogger().addHandler(logging.StreamHandler())
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     try:
-        logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(vectorpath, rasterpath))
-        zs = ZonalStats(vectorpath, rasterpath)
-        zs.extract()
+        logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
+        zs = ZonalStats(args.vectorpath, args.rasterpath)
+        zs.extract(args.nodata)
         zs.close()
         logging.info("Table created with success!")
     except Exception as e:
-        logging.error("Error to process '{}' and '{}': {}".format(vectorpath, rasterpath, str(e)))
+        logging.error("Error to process '{}' and '{}': {}".format(args.vectorpath, args.rasterpath, str(e)))
