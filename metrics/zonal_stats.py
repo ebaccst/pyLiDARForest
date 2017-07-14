@@ -15,13 +15,15 @@ Options:
   -h --help     Show this screen.
   --version     Show version.
 """
+import argparse
+import logging
+import os
+import time
+
+import numpy as np
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
 from pandas import DataFrame
-import numpy as np
-import os
-import argparse
-import logging
 
 gdal.PushErrorHandler('CPLQuietErrorHandler')
 
@@ -254,7 +256,14 @@ if __name__ == "__main__":
 
     try:
         logging.info("Running 'zonal_stats' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
+        ti = time.clock()
+
         stats = zonal_stats(args.vectorpath, args.rasterpath, args.nodata, args.export, args.globalextent)
         logging.info(DataFrame(stats))
+
+        tf_sec = int((time.clock() - ti) % 60)
+        tf_min = int((tf_sec / 60) % 60)
+        tf_h = int((tf_min / 60) % 24)
+        logging.info("Stats extracted with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))
     except Exception as e:
         logging.error("Error to process '{}' and '{}': {}".format(args.vectorpath, args.rasterpath, str(e)))

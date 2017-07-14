@@ -59,7 +59,7 @@ BEGIN
     IF NEW.p10 = 0 OR NEW.max = 0 THEN
     	NEW.agblongo_als_alive:=0.0;
     ELSE
-        NEW.agblongo_als_alive:=((0.058*exp(-3.6*NEW.d00))*(NEW.kur^0.72)*(NEW.p05^0.16)*(NEW.p10^(-0.43))*(NEW.p75^2.41)*(NEW.max^(-0.61)))*2;
+        NEW.agblongo_als_alive:=((0.058*exp((-3.6)*(NEW.d00/100)))*(NEW.kur^0.72)*(NEW.p05^0.16)*(NEW.p10^(-0.43))*(NEW.p75^2.41)*(NEW.max^(-0.61)))*2;
     END IF;
     RETURN NEW;
 END$BODY$
@@ -136,6 +136,7 @@ CREATE TABLE public.metrics
   dns_gap double precision,
   chm double precision,
   agblongo_als_total double precision,
+  agblongo_als_alive double precision,
   agblongo_tch_total double precision,
   agblongo_tch_alive double precision,
   CONSTRAINT metrics_pkey PRIMARY KEY (id)
@@ -155,6 +156,13 @@ CREATE TRIGGER metrics_agblongo_als_total
   ON public.metrics
   FOR EACH ROW
   EXECUTE PROCEDURE public.fbiomasslongo_acd_als();
+
+-- DROP TRIGGER metrics_agblongo_als_alive ON public.metrics;
+CREATE TRIGGER metrics_agblongo_als_alive
+  BEFORE INSERT OR UPDATE
+  ON public.metrics
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.fbiomasslongo_abcd_als();
 
 -- DROP TRIGGER metrics_agblongo_tch_total ON public.metrics;
 CREATE TRIGGER metrics_agblongo_tch_total
@@ -260,10 +268,50 @@ WHERE ST_SRID(geom) = 31983;
 
 SELECT DISTINCT(ST_SRID(geom)) FROM metrics; -- should be 1 item
 
--- after all
 -- Change the column srid
 -- ALTER TABLE metrics ALTER COLUMN geom TYPE Geometry(Polygon, 32644) USING ST_Transform(geom, 5880) -- reproject all columns
 -- ALTER TABLE metrics ALTER COLUMN geom TYPE geometry(Polygon) USING ST_SetSRID(geom, 5880);
 SELECT UpdateGeometrySRID('public', 'metrics', 'geom', 5880); -- set only srid
 SELECT Find_SRID('public', 'metrics', 'geom'); -- must be 5880
 
+--
+-- Data analysis
+--
+
+-- Export to SHP
+SELECT filename, index_, x, y, chm, agblongo_als_total, agblongo_tch_total, agblongo_tch_alive, geom FROM metrics;
+
+-- Checks points with outlier
+-- 4 points/m2 * 50x50m2 = 10000
+SELECT * FROM metrics WHERE all_ < 10000;
+
+-- EQ
+SELECT ((0.058*exp((-3.6)*(d00/100)))*(kur^0.72)*(p05^0.16)*(p10^(-0.43))*(p75^2.41)*(max^(-0.61)))*2 as agblongo_als_alive FROM metrics WHERE p10 > 0 AND max > 0 LIMIT 10;
+
+-- Clip TEST
+ALTER TABLE vegtype RENAME wkb_geometry TO geom;
+
+SELECT * FROM vegtype LIMIT 10;
+SELECT * FROM biome;
+
+DELETE FROM vegtype v
+USING biome b
+WHERE NOT ST_Intersects(v.geom, b.geom);
+
+-- Clip Real
+ALTER TABLE cells RENAME wkb_geometry TO geom;
+SELECT * FROM cells LIMIT 10;
+
+DELETE FROM cells v
+USING biome b
+WHERE NOT ST_Intersects(v.geom, b.geom);
+
+-- Indexing
+CREATE INDEX metrics_gix ON metrics USING GIST (geom);
+
+-- Vacuuming
+VACUUM ANALYZE metrics;
+
+-- Clustering
+CLUSTER metrics USING metrics_gix;
+ANALYZE metrics;

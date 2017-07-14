@@ -15,12 +15,14 @@ Options:
   -h --help     Show this screen.
   --version     Show version.
 """
-from osgeo import gdal, ogr
-from osgeo.gdalconst import *
-import numpy as np
-import os
 import argparse
 import logging
+import os
+import time
+
+import numpy as np
+from osgeo import gdal, ogr
+from osgeo.gdalconst import *
 
 gdal.PushErrorHandler('CPLQuietErrorHandler')
 
@@ -71,7 +73,7 @@ class ZonalStats(object):
         del self._raster_ds
         del self._conn
 
-    def extract(self, nodata_value=None):
+    def extract(self, nodata_value=None, global_src_extent=False):
         self.__create_fields_df()
 
         rb = self._raster_ds.GetRasterBand(1)
@@ -81,6 +83,26 @@ class ZonalStats(object):
             rb.SetNoDataValue(nodata_value)
         else:
             nodata_value = rb.GetNoDataValue()
+
+        # create an in-memory numpy array of the source raster data
+        # covering the whole extent of the vector layer
+        if global_src_extent:
+            # use global source extent
+            # useful only when disk IO or raster scanning inefficiencies are your limiting factor
+            # advantage: reads raster data in one pass
+            # disadvantage: large vector extents may have big memory requirements
+            src_offset = self.__bbox_to_pixel_offsets(rgt, self._bb.GetExtent())
+            src_array = rb.ReadAsArray(*src_offset)
+
+            # calculate new geotransform of the layer subset
+            new_gt = (
+                (rgt[0] + (src_offset[0] * rgt[1])),
+                rgt[1],
+                0.0,
+                (rgt[3] + (src_offset[1] * rgt[5])),
+                0.0,
+                rgt[5]
+            )
 
         mem_drv = ogr.GetDriverByName('Memory')
         ogr_driver = gdal.GetDriverByName('MEM')
@@ -93,16 +115,23 @@ class ZonalStats(object):
         while feat:
             geometry = feat.geometry()
 
-            src_offset = self.__bbox_to_pixel_offsets(rgt, geometry.GetEnvelope())
-            src_array = rb.ReadAsArray(*src_offset)
-            new_gt = (
-                (rgt[0] + (src_offset[0] * rgt[1])),
-                rgt[1],
-                0.0,
-                (rgt[3] + (src_offset[1] * rgt[5])),
-                0.0,
-                rgt[5]
-            )
+            if not global_src_extent:
+                # use local source extent
+                # fastest option when you have fast disks and well indexed raster (ie tiled Geotiff)
+                # advantage: each feature uses the smallest raster chunk
+                # disadvantage: lots of reads on the source raster
+                src_offset = self.__bbox_to_pixel_offsets(rgt, geometry.GetEnvelope())
+                src_array = rb.ReadAsArray(*src_offset)
+
+                # calculate new geotransform of the feature subset
+                new_gt = (
+                    (rgt[0] + (src_offset[0] * rgt[1])),
+                    rgt[1],
+                    0.0,
+                    (rgt[3] + (src_offset[1] * rgt[5])),
+                    0.0,
+                    rgt[5]
+                )
 
             mem_ds = mem_drv.CreateDataSource('out')
             mem_layer = mem_ds.CreateLayer('poly', None, ogr.wkbPolygon)
@@ -199,6 +228,8 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
     parser.add_argument("-n", "--nodata", type=float, default=None, help="No data value. Default None.")
     parser.add_argument("-l", "--log", type=str, default=None, help="Logs to a file. Default 'console'.")
+    parser.add_argument("-g", "--globalextent", type=bool, default=False, help="Create an in-memory numpy array of the "
+                                                                               "source raster data. Default False.")
     args = parser.parse_args()
 
     if args.log:
@@ -209,9 +240,15 @@ if __name__ == "__main__":
 
     try:
         logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
+        ti = time.clock()
+
         zs = ZonalStats(args.vectorpath, args.rasterpath)
-        zs.extract(args.nodata)
+        zs.extract(args.nodata, args.globalextent)
         zs.close()
-        logging.info("Table created with success!")
+
+        tf_sec = int((time.clock() - ti) % 60)
+        tf_min = int((tf_sec / 60) % 60)
+        tf_h = int((tf_min / 60) % 24)
+        logging.info("Table created with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))
     except Exception as e:
         logging.error("Error to process '{}' and '{}': {}".format(args.vectorpath, args.rasterpath, str(e)))
