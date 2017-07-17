@@ -37,7 +37,7 @@ class ZonalStats(object):
                "Copyright 2017 Heitor G. Carneiro"
 
     @staticmethod
-    def progress_bar(iteration, total, prefix='Progress:', suffix='Complete', decimals=1, length=100, fill='|'):
+    def progress_bar(iteration, total, prefix='Progress:', suffix='Complete', decimals=1, length=100, fill='#'):
         """
         Call in a loop to create terminal progress bar
         @params:
@@ -84,10 +84,18 @@ class ZonalStats(object):
         geom_type = self._bb_defn.GetGeomType()
         gdal_options = ['OVERWRITE=YES']
 
-        logging.info(
-            "Trying to create table: {}, {}, {}".format(self._raster_filename, str(geom_type), str(gdal_options)))
+        logging.info("Trying to create table: {}, {}, {}".format(self._raster_filename, str(geom_type),
+                                                                 str(gdal_options)))
         logging.info("With projection: {}".format(str(srs)))
+
         self._newbb = self._conn.CreateLayer(self._raster_filename, srs, geom_type, gdal_options)
+        self._newbb_defn = self._newbb.GetLayerDefn()
+
+        self._band = self._raster_ds.GetRasterBand(1)
+        self._geo_trans = self._raster_ds.GetGeoTransform()
+
+        self._mem_drv = ogr.GetDriverByName('Memory')
+        self._mem_gdal_driver = gdal.GetDriverByName('MEM')
 
     def close(self):
         del self._bb
@@ -96,42 +104,50 @@ class ZonalStats(object):
 
     def extract(self, nodata_value=None, global_src_extent=False):
         self.__create_fields_df()
-
-        rb = self._raster_ds.GetRasterBand(1)
-        rgt = self._raster_ds.GetGeoTransform()
-        newbb_defn = self._newbb.GetLayerDefn()
-        logging.info("Copying '{}' fields to '{}'".format(newbb_defn.GetFieldCount(), self._raster_filename))
+        logging.info("Copying '{}' fields to '{}'".format(self._newbb_defn.GetFieldCount(), self._raster_filename))
 
         if nodata_value:
             nodata_value = float(nodata_value)
-            rb.SetNoDataValue(nodata_value)
+            self._band.SetNoDataValue(nodata_value)
         else:
-            nodata_value = rb.GetNoDataValue()
+            nodata_value = self._band.GetNoDataValue()
 
-        mem_drv = ogr.GetDriverByName('Memory')
-        gdal_driver = gdal.GetDriverByName('MEM')
-
-        feat_cont = 0
-        feat_total = int(self._bb.GetFeatureCount())
-        ZonalStats.progress_bar(feat_cont, feat_total)
+        transaction_cont = 0
+        progress_cont = 0
+        progress_total = int(self._bb.GetFeatureCount())
+        ZonalStats.progress_bar(progress_cont, progress_total)
 
         feat = self._bb.GetNextFeature()
         while feat:
             geometry = feat.geometry()
-            src_offset, src_array, new_gt = self.offset_values(rb, rgt, geometry, global_src_extent)
+            src_offset, src_array, new_gt = self.offset_values(geometry, global_src_extent)
             if src_array.any():
                 try:
-                    self.zonal_stats(feat, geometry, newbb_defn, mem_drv, gdal_driver, nodata_value, src_offset, src_array, new_gt)
+                    if transaction_cont == 0:
+                        self._newbb.StartTransaction()
+
+                    self.zonal_stats(feat, geometry, nodata_value, src_offset, src_array, new_gt)
+
+                    if transaction_cont == 1000:
+                        self._newbb.CommitTransaction()
+                        transaction_cont = 0
                 except Exception as zs_error:
                     logging.error("Error to extract zonal stats: {}".format(str(zs_error)))
             else:
                 logging.error("Array of bounding box (FID: {}) is None. Reading next feature".format(feat.GetFID()))
 
             feat = self._bb.GetNextFeature()
-            feat_cont += 1
-            ZonalStats.progress_bar(feat_cont, feat_total)
+            transaction_cont += 1
+            progress_cont += 1
+            ZonalStats.progress_bar(progress_cont, progress_total)
 
-    def offset_values(self, rb, rgt, geometry, global_src_extent):
+        if transaction_cont > 0:
+            self._newbb.CommitTransaction()
+        del transaction_cont
+        del progress_cont
+        del progress_total
+
+    def offset_values(self, geometry, global_src_extent):
         """
         # Use global source extent
         create an in-memory numpy array of the source raster data
@@ -145,36 +161,33 @@ class ZonalStats(object):
         advantage: each feature uses the smallest raster chunk
         disadvantage: lots of reads on the source raster
 
-        :param rb: RasterBand
-        :param rgt: Raster GeoTransform
         :param global_src_extent: A boolean
-        :return:
+        :return: src_offset, src_array, new_gt
         """
         if global_src_extent:
-            src_offset = self.__bbox_to_pixel_offsets(rgt, self._bb.GetExtent())
+            src_offset = self.__bbox_to_pixel_offsets(self._geo_trans, self._bb.GetExtent())
 
         else:
-            src_offset = self.__bbox_to_pixel_offsets(rgt, geometry.GetEnvelope())
+            src_offset = self.__bbox_to_pixel_offsets(self._geo_trans, geometry.GetEnvelope())
 
-        src_array = np.array(rb.ReadAsArray(*src_offset))
+        src_array = np.array(self._band.ReadAsArray(*src_offset))
         new_gt = (
-            (rgt[0] + (src_offset[0] * rgt[1])),
-            rgt[1],
+            (self._geo_trans[0] + (src_offset[0] * self._geo_trans[1])),
+            self._geo_trans[1],
             0.0,
-            (rgt[3] + (src_offset[1] * rgt[5])),
+            (self._geo_trans[3] + (src_offset[1] * self._geo_trans[5])),
             0.0,
-            rgt[5]
+            self._geo_trans[5]
         )
 
         return src_offset, src_array, new_gt
 
-    def zonal_stats(self, feat, geometry, newbb_defn, mem_drv, gdal_driver, nodata_value, src_offset, src_array,
-                    new_gt):
-        mem_ds = mem_drv.CreateDataSource('out')
+    def zonal_stats(self, feat, geometry, nodata_value, src_offset, src_array, new_gt):
+        mem_ds = self._mem_drv.CreateDataSource('out')
         mem_layer = mem_ds.CreateLayer('poly', None, ogr.wkbPolygon)
         mem_layer.CreateFeature(feat.Clone())
 
-        rvds = gdal_driver.Create('', src_offset[2], src_offset[3], 1, gdal.GDT_Byte)
+        rvds = self._mem_gdal_driver.Create('', src_offset[2], src_offset[3], 1, gdal.GDT_Byte)
         rvds.SetGeoTransform(new_gt)
 
         gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
@@ -204,19 +217,16 @@ class ZonalStats(object):
         except Exception as masked_error:
             logging.error("Error to np.ma.MaskedArray: {}".format(str(masked_error)))
 
-        new_feature = ogr.Feature(newbb_defn)
+        new_feature = ogr.Feature(self._newbb_defn)
         new_feature.SetGeometry(geometry)
-        for i in range(0, newbb_defn.GetFieldCount()):
-            name_ref = newbb_defn.GetFieldDefn(i).GetNameRef()
+        for i in range(0, self._newbb_defn.GetFieldCount()):
+            name_ref = self._newbb_defn.GetFieldDefn(i).GetNameRef()
             if name_ref in feature_stats:
                 field_value = feature_stats[name_ref]
             else:
                 field_value = feat.GetField(i)
             new_feature.SetField(name_ref, field_value)
-
-        self._newbb.StartTransaction()
         self._newbb.CreateFeature(new_feature)
-        self._newbb.CommitTransaction()
 
         del new_feature
         del rvds
