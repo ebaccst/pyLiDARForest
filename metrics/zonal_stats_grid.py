@@ -36,6 +36,26 @@ class ZonalStats(object):
                "(https://gist.githubusercontent.com/perrygeo/5667173/raw/763e1e50208e8c853f46e57cd07bb07b424fed10/zonal_stats.py)\n" \
                "Copyright 2017 Heitor G. Carneiro"
 
+    @staticmethod
+    def progress_bar(iteration, total, prefix='Progress:', suffix='Complete', decimals=1, length=100, fill='|'):
+        """
+        Call in a loop to create terminal progress bar
+        @params:
+            iteration   - Required  : current iteration (Int)
+            total       - Required  : total iterations (Int)
+            prefix      - Optional  : prefix string (Str)
+            suffix      - Optional  : suffix string (Str)
+            decimals    - Optional  : positive number of decimals in percent complete (Int)
+            length      - Optional  : character length of bar (Int)
+            fill        - Optional  : bar fill character (Str)
+        """
+        percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+        filled_length = int(length * iteration // total)
+        bar = fill * filled_length + '-' * (length - filled_length)
+
+        out = '\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix)
+        logging.info(out)
+
     def __init__(self, bouding_box, raster, server="localhost", dbname="eba", user="eba", password="ebaeba18"):
         conn_str = "PG: host=%s dbname=%s user=%s password=%s" % (server, dbname, user, password)
 
@@ -64,7 +84,8 @@ class ZonalStats(object):
         geom_type = self._bb_defn.GetGeomType()
         gdal_options = ['OVERWRITE=YES']
 
-        logging.info("Trying to create table: {}, {}, {}".format(self._raster_filename, str(geom_type), str(gdal_options)))
+        logging.info(
+            "Trying to create table: {}, {}, {}".format(self._raster_filename, str(geom_type), str(gdal_options)))
         logging.info("With projection: {}".format(str(srs)))
         self._newbb = self._conn.CreateLayer(self._raster_filename, srs, geom_type, gdal_options)
 
@@ -78,111 +99,128 @@ class ZonalStats(object):
 
         rb = self._raster_ds.GetRasterBand(1)
         rgt = self._raster_ds.GetGeoTransform()
+        newbb_defn = self._newbb.GetLayerDefn()
+        logging.info("Copying '{}' fields to '{}'".format(newbb_defn.GetFieldCount(), self._raster_filename))
+
         if nodata_value:
             nodata_value = float(nodata_value)
             rb.SetNoDataValue(nodata_value)
         else:
             nodata_value = rb.GetNoDataValue()
 
-        # create an in-memory numpy array of the source raster data
-        # covering the whole extent of the vector layer
-        if global_src_extent:
-            # use global source extent
-            # useful only when disk IO or raster scanning inefficiencies are your limiting factor
-            # advantage: reads raster data in one pass
-            # disadvantage: large vector extents may have big memory requirements
-            src_offset = self.__bbox_to_pixel_offsets(rgt, self._bb.GetExtent())
-            src_array = rb.ReadAsArray(*src_offset)
-
-            # calculate new geotransform of the layer subset
-            new_gt = (
-                (rgt[0] + (src_offset[0] * rgt[1])),
-                rgt[1],
-                0.0,
-                (rgt[3] + (src_offset[1] * rgt[5])),
-                0.0,
-                rgt[5]
-            )
-
         mem_drv = ogr.GetDriverByName('Memory')
-        ogr_driver = gdal.GetDriverByName('MEM')
+        gdal_driver = gdal.GetDriverByName('MEM')
 
-        newbb_defn = self._newbb.GetLayerDefn()
-        field_count = newbb_defn.GetFieldCount()
-        logging.info("Copying '{}' fields to '{}'".format(field_count, self._raster_filename))
+        feat_cont = 0
+        feat_total = int(self._bb.GetFeatureCount())
+        ZonalStats.progress_bar(feat_cont, feat_total)
 
         feat = self._bb.GetNextFeature()
         while feat:
             geometry = feat.geometry()
+            src_offset, src_array, new_gt = self.offset_values(rb, rgt, geometry, global_src_extent)
+            if src_array.any():
+                try:
+                    self.zonal_stats(feat, geometry, newbb_defn, mem_drv, gdal_driver, nodata_value, src_offset, src_array, new_gt)
+                except Exception as zs_error:
+                    logging.error("Error to extract zonal stats: {}".format(str(zs_error)))
+            else:
+                logging.error("Array of bounding box (FID: {}) is None. Reading next feature".format(feat.GetFID()))
 
-            if not global_src_extent:
-                # use local source extent
-                # fastest option when you have fast disks and well indexed raster (ie tiled Geotiff)
-                # advantage: each feature uses the smallest raster chunk
-                # disadvantage: lots of reads on the source raster
-                src_offset = self.__bbox_to_pixel_offsets(rgt, geometry.GetEnvelope())
-                src_array = rb.ReadAsArray(*src_offset)
-
-                # calculate new geotransform of the feature subset
-                new_gt = (
-                    (rgt[0] + (src_offset[0] * rgt[1])),
-                    rgt[1],
-                    0.0,
-                    (rgt[3] + (src_offset[1] * rgt[5])),
-                    0.0,
-                    rgt[5]
-                )
-
-            mem_ds = mem_drv.CreateDataSource('out')
-            mem_layer = mem_ds.CreateLayer('poly', None, ogr.wkbPolygon)
-            mem_layer.CreateFeature(feat.Clone())
-
-            rvds = ogr_driver.Create('', src_offset[2], src_offset[3], 1, gdal.GDT_Byte)
-            rvds.SetGeoTransform(new_gt)
-            gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
-            rv_array = rvds.ReadAsArray()
-
-            masked = np.ma.MaskedArray(
-                src_array,
-                mask=np.logical_or(
-                    src_array == nodata_value,
-                    np.logical_not(rv_array)
-                )
-            )
-
-            feature_stats = {self._fields[6]: float(geometry.Area())}
-            try:
-                masked_stats = {
-                    self._fields[0]: float(masked.min()),
-                    self._fields[1]: float(masked.mean()),
-                    self._fields[2]: float(masked.max()),
-                    self._fields[3]: float(masked.std()),
-                    self._fields[4]: float(masked.sum()),
-                    self._fields[5]: int(masked.count()),
-                }
-
-                feature_stats.update(masked_stats)
-            except Exception as masked_error:
-                logging.error("Error to np.ma.MaskedArray: {}".format(str(masked_error)))
-
-            new_feature = ogr.Feature(newbb_defn)
-            new_feature.SetGeometry(geometry)
-            for i in range(0, field_count):
-                name_ref = newbb_defn.GetFieldDefn(i).GetNameRef()
-                if name_ref in feature_stats:
-                    field_value = feature_stats[name_ref]
-                else:
-                    field_value = feat.GetField(i)
-                new_feature.SetField(name_ref, field_value)
-
-            self._newbb.StartTransaction()
-            self._newbb.CreateFeature(new_feature)
-            self._newbb.CommitTransaction()
-
-            del new_feature
-            del rvds
-            del mem_ds
             feat = self._bb.GetNextFeature()
+            feat_cont += 1
+            ZonalStats.progress_bar(feat_cont, feat_total)
+
+    def offset_values(self, rb, rgt, geometry, global_src_extent):
+        """
+        # Use global source extent
+        create an in-memory numpy array of the source raster data
+        covering the whole extent of the vector layer
+        useful only when disk IO or raster scanning inefficiencies are your limiting factor
+        advantage: reads raster data in one pass
+        disadvantage: large vector extents may have big memory requirements
+
+        # Use local source extent
+        fastest option when you have fast disks and well indexed raster (ie tiled Geotiff)
+        advantage: each feature uses the smallest raster chunk
+        disadvantage: lots of reads on the source raster
+
+        :param rb: RasterBand
+        :param rgt: Raster GeoTransform
+        :param global_src_extent: A boolean
+        :return:
+        """
+        if global_src_extent:
+            src_offset = self.__bbox_to_pixel_offsets(rgt, self._bb.GetExtent())
+
+        else:
+            src_offset = self.__bbox_to_pixel_offsets(rgt, geometry.GetEnvelope())
+
+        src_array = np.array(rb.ReadAsArray(*src_offset))
+        new_gt = (
+            (rgt[0] + (src_offset[0] * rgt[1])),
+            rgt[1],
+            0.0,
+            (rgt[3] + (src_offset[1] * rgt[5])),
+            0.0,
+            rgt[5]
+        )
+
+        return src_offset, src_array, new_gt
+
+    def zonal_stats(self, feat, geometry, newbb_defn, mem_drv, gdal_driver, nodata_value, src_offset, src_array,
+                    new_gt):
+        mem_ds = mem_drv.CreateDataSource('out')
+        mem_layer = mem_ds.CreateLayer('poly', None, ogr.wkbPolygon)
+        mem_layer.CreateFeature(feat.Clone())
+
+        rvds = gdal_driver.Create('', src_offset[2], src_offset[3], 1, gdal.GDT_Byte)
+        rvds.SetGeoTransform(new_gt)
+
+        gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
+        rv_array = rvds.ReadAsArray()
+
+        masked = np.ma.MaskedArray(
+            src_array,
+            mask=np.logical_or(
+                src_array == nodata_value,
+                np.logical_not(rv_array)
+            )
+        )
+
+        feature_stats = {self._fields[6]: float(geometry.Area())}
+
+        try:
+            masked_stats = {
+                self._fields[0]: float(masked.min()),
+                self._fields[1]: float(masked.mean()),
+                self._fields[2]: float(masked.max()),
+                self._fields[3]: float(masked.std()),
+                self._fields[4]: float(masked.sum()),
+                self._fields[5]: int(masked.count()),
+            }
+
+            feature_stats.update(masked_stats)
+        except Exception as masked_error:
+            logging.error("Error to np.ma.MaskedArray: {}".format(str(masked_error)))
+
+        new_feature = ogr.Feature(newbb_defn)
+        new_feature.SetGeometry(geometry)
+        for i in range(0, newbb_defn.GetFieldCount()):
+            name_ref = newbb_defn.GetFieldDefn(i).GetNameRef()
+            if name_ref in feature_stats:
+                field_value = feature_stats[name_ref]
+            else:
+                field_value = feat.GetField(i)
+            new_feature.SetField(name_ref, field_value)
+
+        self._newbb.StartTransaction()
+        self._newbb.CreateFeature(new_feature)
+        self._newbb.CommitTransaction()
+
+        del new_feature
+        del rvds
+        del mem_ds
 
     def list_layers(self):
         layers = []
