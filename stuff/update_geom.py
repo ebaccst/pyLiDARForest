@@ -1,11 +1,13 @@
-import logging
-import time
-import os
 import argparse
+import logging
+import os
+import time
 from re import search
+
+from osgeo import ogr
+
 from dbutils import dbutils
 from transect import Transect
-from osgeo import ogr
 
 
 class UpdateGeom(object):
@@ -14,17 +16,21 @@ class UpdateGeom(object):
     @staticmethod
     def processCmdLine():
         parser = argparse.ArgumentParser(description="Update column geom.")
-        parser.add_argument("-t", "--transects", type=str, default=r"G:\TRANSECTS", help="Path of the Transects. Default 'G:\TRANSECTS'")
+        parser.add_argument("-t", "--transects", type=str, default=r"G:\TRANSECTS",
+                            help="Path of the Transects. Default 'G:\TRANSECTS'")
         parser.add_argument("-d", "--dbname", type=str, default="eba", help="DB name. Default 'eba'")
         parser.add_argument("-u", "--user", type=str, default="eba", help="Postgres user. Default 'eba'.")
-        parser.add_argument("-p", "--password", type=str, default="ebaeba18", help="Postgres password. Default 'ebaeba18'")
+        parser.add_argument("-p", "--password", type=str, default="ebaeba18",
+                            help="Postgres password. Default 'ebaeba18'")
         parser.add_argument("-ip", "--ip", type=str, default="localhost", help="Postgres host. Default 'localhost'")
         parser.add_argument("-ts", "--tablespace", type=str, default="pg_default", help="Default 'pg_default'.")
-        parser.add_argument("-n", "--tablename", type=str, default="metrics", help="Postgres table name. Default 'metrics'.")
-        parser.add_argument("-tf", "--transectfield", type=str, default="filename", help="Table column name. Default 'filename'.")
+        parser.add_argument("-n", "--tablename", type=str, default="metrics",
+                            help="Postgres table name. Default 'metrics'.")
+        parser.add_argument("-tf", "--transectfield", type=str, default="filename",
+                            help="Table column name. Default 'filename'.")
         parser.add_argument("-xf", "--xfield", type=str, default="x", help="X field name. Default 'x'.")
         parser.add_argument("-yf", "--yfield", type=str, default="y", help="Y field name. Default 'y'.")
-        parser.add_argument("-xd", "--xdim", type=int,  default=50, help="X dimension. Default '50'.")
+        parser.add_argument("-xd", "--xdim", type=int, default=50, help="X dimension. Default '50'.")
         parser.add_argument("-yd", "--ydim", type=int, default=50, help="Y dimension. Default '50'.")
         parser.add_argument("-e", "--epsg", type=int, default=5880, help="EPSG of new column. Default '5880'.")
         parser.add_argument("-s", "--sql", type=str, default=None, help="Export to a SQL file. Default 'None'.")
@@ -52,6 +58,13 @@ class UpdateGeom(object):
 
     def run(self):
         schema = self._db.getTableSchema(self._tablename)
+        errors, transectsProj = self.__getTransectsProj()
+        if self._sql:
+            self._sql = open(self._sql, "a")
+            self._sql.write(self.__getDropColumnSQL() + "\n")
+            self._sql.write(self.__getAddGeomColumnSQL() + "\n")
+            self.__writeCreateGeom(errors, transectsProj)
+
         if "geom" in schema:
             dropResult = self._db.execute(self.__getDropColumnSQL(), autocommit=True)
             logging.info("Drop column SQL result: {}".format(str(dropResult)))
@@ -59,10 +72,12 @@ class UpdateGeom(object):
         addResult = self._db.execute(self.__getAddGeomColumnSQL(), autocommit=True)
         logging.info("Add column SQL result: {}".format(str(addResult)))
 
-        errors, transectsProj = self.__getTransectsProj()
         self.__executeCreateGeom(errors, transectsProj)
 
         projections = self._db.getdata(self.__getDistinctEPSGSQL())
+        if self._sql:
+            self.__writeReproject(errors, projections)
+            self._sql.write(self.__getSetSRIDSQL() + "\n")
         self.__executeReproject(errors, projections)
 
         setSRIDResult = self._db.execute(self.__getSetSRIDSQL(), autocommit=True)
@@ -73,32 +88,8 @@ class UpdateGeom(object):
             for filename, error in errors.iteritems():
                 logging.warning("{} with {}".format(filename, error))
 
-    def save(self):
-        self._sql = open(self._sql, "a")
-
-        schema = self._db.getTableSchema(self._tablename)
-        if "geom" in schema:
-            self._sql.write(self.__getDropColumnSQL() + "\n")
-            logging.info("Writing 'drop column' command")
-
-        self._sql.write(self.__getAddGeomColumnSQL() + "\n")
-        logging.info("Writing 'add column' command")
-
-        errors, transectsProj = self.__getTransectsProj()
-        self.__writeCreateGeom(errors, transectsProj)
-
-        projections = self._db.getdata(self.__getDistinctEPSGSQL())
-        self.__writeReproject(errors, projections)
-
-        self._sql.write(self.__getSetSRIDSQL() + "\n")
-        logging.info("Writing 'Set SRID' command")
-
-        if len(errors) > 0:
-            logging.warning("Files with problems: ")
-            for errorName, error in errors.iteritems():
-                logging.warning("{} with {}".format(errorName, error))
-
-        self._sql.close()
+        if self._sql:
+            self._sql.close()
 
     def __executeReproject(self, errors, projections):
         for epsg in projections:
@@ -234,10 +225,8 @@ WHERE {6} ~ '{7}';
             proj = transectsProj[number]
             try:
                 self._sql.write(self.__getUpdateGeomColumnSQL(number, proj) + "\n")
-                logging.info("Writing 'Update geom' command")
-                logging.info("The geom of '{}' was updated with projection '{}'".format(number, proj))
             except Exception as e:
-                logging.error("Error to process '{}': {}".format(number, e))
+                logging.error("Error to write '{}': {}".format(number, e))
                 errors[number] = e
 
     def __writeReproject(self, errors, projections):
@@ -245,10 +234,8 @@ WHERE {6} ~ '{7}';
             try:
                 epsg = epsg[0]
                 self._sql.write(self.__getTransformSQL(epsg) + "\n")
-                logging.info("Writing 'Reproject column' command")
-                logging.info("Reproject {} to {}".format(epsg, self._epsg))
             except Exception as e:
-                logging.error("Error to process '{}': {}".format(epsg, e))
+                logging.error("Error to write '{}': {}".format(epsg, e))
                 errors[epsg] = e
 
 
@@ -265,11 +252,9 @@ if __name__ == "__main__":
         t0 = time.clock()
 
         db = dbutils(args.ip, args.user, args.password, args.dbname, args.tablespace)
-        up = UpdateGeom(args.transects, db, args.tablename, args.transectfield, args.xfield, args.yfield, args.xdim, args.ydim, args.epsg, args.sql)
-        if args.sql:
-            up.save()
-        else:
-            up.run()
+        up = UpdateGeom(args.transects, db, args.tablename, args.transectfield, args.xfield, args.yfield, args.xdim,
+                        args.ydim, args.epsg, args.sql)
+        up.run()
 
         logging.info("The column geom was created in {} seconds.".format(time.clock() - t0))
     except Exception as e:

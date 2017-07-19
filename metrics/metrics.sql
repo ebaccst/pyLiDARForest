@@ -6,7 +6,7 @@ CREATE OR REPLACE FUNCTION public.fbiomasslongo_acd_als()
 $BODY$
 BEGIN
     IF NEW.p10 = 0 OR NEW.max = 0 THEN
-    	NEW.agblongo_als_total:=0.0;
+    	NEW.agblongo_als_total:=NULL;
     ELSE
         NEW.agblongo_als_total:=((0.2*(NEW.avg^2.02))*(NEW.kur^0.66)*(NEW.p05^0.11)*(NEW.p10^(-0.32))*((NEW.p75-NEW.p25)^0.5)*(NEW.max^(-0.82)))*2;
     END IF;
@@ -22,7 +22,9 @@ CREATE OR REPLACE FUNCTION public.fbiomasslongo_acd_tch()
   RETURNS trigger AS
 $BODY$
 BEGIN
-    IF NEW.chm = NULL OR NEW.chm < 0 OR NEW.chm = 0 THEN
+    IF NEW.chm = NULL OR NEW.chm < 0 THEN
+    	NEW.agblongo_tch_total:=NULL;
+    ELSIF NEW.chm = 0 THEN
     	NEW.agblongo_tch_total:=0.0;
     ELSE
         NEW.agblongo_tch_total:=(0.054*(NEW.chm^1.76))*2;
@@ -34,12 +36,31 @@ END$BODY$
 ALTER FUNCTION public.fbiomasslongo_acd_tch()
   OWNER TO postgres;
 
+-- DROP FUNCTION public.fbiomasslongo_abcd_als();
+CREATE OR REPLACE FUNCTION public.fbiomasslongo_abcd_als()
+  RETURNS trigger AS
+$BODY$
+BEGIN
+    IF NEW.p10 = 0 OR NEW.max = 0 THEN
+    	NEW.agblongo_als_alive:=NULL;
+    ELSE
+        NEW.agblongo_als_alive:=((0.058*exp((-3.6)*NEW.d00))*(NEW.kur^0.72)*(NEW.p05^0.16)*(NEW.p10^(-0.43))*(NEW.p75^2.41)*(NEW.max^(-0.61)))*2;
+    END IF;
+    RETURN NEW;
+END$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+ALTER FUNCTION public.fbiomasslongo_abcd_als()
+  OWNER TO postgres;
+
 -- DROP FUNCTION public.fbiomasslongo_abcd_tch();
 CREATE OR REPLACE FUNCTION public.fbiomasslongo_abcd_tch()
   RETURNS trigger AS
 $BODY$
 BEGIN
-    IF NEW.chm = NULL OR NEW.chm < 0 OR NEW.chm = 0 THEN
+    IF NEW.chm = NULL OR NEW.chm < 0 THEN
+    	NEW.agblongo_tch_alive:=NULL;
+    ELSIF NEW.chm = 0 THEN
     	NEW.agblongo_tch_alive:=0.0;
     ELSE
         NEW.agblongo_tch_alive:=(0.025*(NEW.chm^1.99))*2;
@@ -49,23 +70,6 @@ END$BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
 ALTER FUNCTION public.fbiomasslongo_abcd_tch()
-  OWNER TO postgres;
-
--- DROP FUNCTION public.fbiomasslongo_abcd_als();
-CREATE OR REPLACE FUNCTION public.fbiomasslongo_abcd_als()
-  RETURNS trigger AS
-$BODY$
-BEGIN
-    IF NEW.p10 = 0 OR NEW.max = 0 THEN
-    	NEW.agblongo_als_alive:=0.0;
-    ELSE
-        NEW.agblongo_als_alive:=((0.058*exp((-3.6)*(NEW.d00/100)))*(NEW.kur^0.72)*(NEW.p05^0.16)*(NEW.p10^(-0.43))*(NEW.p75^2.41)*(NEW.max^(-0.61)))*2;
-    END IF;
-    RETURN NEW;
-END$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-ALTER FUNCTION public.fbiomasslongo_abcd_als()
   OWNER TO postgres;
 
 -- Create Sequence
@@ -132,6 +136,7 @@ CREATE TABLE public.metrics
   d04 double precision,
   d05 double precision,
   d06 double precision,
+  d07 double precision,
   cov_gap double precision,
   dns_gap double precision,
   chm double precision,
@@ -288,11 +293,31 @@ SELECT * FROM metrics WHERE all_ < 10000;
 -- EQ
 SELECT ((0.058*exp((-3.6)*(d00/100)))*(kur^0.72)*(p05^0.16)*(p10^(-0.43))*(p75^2.41)*(max^(-0.61)))*2 as agblongo_als_alive FROM metrics WHERE p10 > 0 AND max > 0 LIMIT 10;
 
+-- Indexing
+CREATE INDEX metrics_gix ON metrics USING GIST (geom);
+CREATE INDEX cells_gix ON metrics USING GIST (geom);
+
+-- Vacuuming
+VACUUM ANALYZE metrics;
+VACUUM ANALYZE cells;
+
+-- Clustering
+CLUSTER metrics USING metrics_gix;
+ANALYZE metrics;
+
+CLUSTER cells USING cells_gix;
+ANALYZE cells;
+
 -- Clip TEST
 ALTER TABLE vegtype RENAME wkb_geometry TO geom;
 
 SELECT * FROM vegtype LIMIT 10;
 SELECT * FROM biome;
+
+CREATE INDEX vegtype_gix ON vegtype USING GIST (geom);
+VACUUM ANALYZE vegtype;
+CLUSTER vegtype USING vegtype_gix;
+ANALYZE vegtype;
 
 DELETE FROM vegtype v
 USING biome b
@@ -302,16 +327,17 @@ WHERE NOT ST_Intersects(v.geom, b.geom);
 ALTER TABLE cells RENAME wkb_geometry TO geom;
 SELECT * FROM cells LIMIT 10;
 
+CREATE INDEX biome_gix ON biome USING GIST (geom);
+VACUUM ANALYZE biome;
+CLUSTER biome USING biome_gix;
+ANALYZE biome;
+
+CREATE INDEX cells_gix ON cells USING GIST (geom);
+VACUUM ANALYZE cells;
+CLUSTER cells USING cells_gix;
+ANALYZE cells;
+
 DELETE FROM cells v
 USING biome b
 WHERE NOT ST_Intersects(v.geom, b.geom);
 
--- Indexing
-CREATE INDEX metrics_gix ON metrics USING GIST (geom);
-
--- Vacuuming
-VACUUM ANALYZE metrics;
-
--- Clustering
-CLUSTER metrics USING metrics_gix;
-ANALYZE metrics;
