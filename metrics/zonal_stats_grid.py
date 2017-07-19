@@ -131,17 +131,18 @@ class ZonalStats(object):
                     if transaction_cont == 1000:
                         self._newbb.CommitTransaction()
                         transaction_cont = 0
+                    transaction_cont += 1
                 except Exception as zs_error:
                     logging.error("Error to extract zonal stats: {}".format(str(zs_error)))
             else:
                 logging.error("Array of bounding box (FID: {}) is None. Reading next feature".format(feat.GetFID()))
 
             feat = self._bb.GetNextFeature()
-            transaction_cont += 1
             progress_cont += 1
             ZonalStats.progress_bar(progress_cont, progress_total)
 
         if transaction_cont > 0:
+            logging.info("Closing transaction with {} records".format(transaction_cont))
             self._newbb.CommitTransaction()
         del transaction_cont
         del progress_cont
