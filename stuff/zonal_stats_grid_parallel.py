@@ -157,10 +157,10 @@ class ZonalStats(object):
 
         for i in range(0, self._bb_defn.GetFieldCount()):
             name_ref = self._bb_defn.GetFieldDefn(i).GetNameRef()
-            field_value = str(feat.GetField(i))
+            field_value = feat.GetField(i)
             if not field_value:
                 field_value = nullvalue
-            values[name_ref] = field_value
+            values[name_ref] = str(field_value)
         values[self._geom_column] = self.__geom_from_wkt(geometry.ExportToWkt())
         return values
 
