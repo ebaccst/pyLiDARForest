@@ -89,14 +89,6 @@ for k in range(args.density):
            added+=1
            if (added % 10000) == 0:
                print(added)
-'''
-       if image[i,j] == 0:
-          z=image[i,j]*zratio+random.random()*50 + 100
-          f.write("{0} {1} {2}\r\n".format(x,y,z))
-          z=image[i,j]*zratio+random.random()*50 + 100
-          f.write("{0} {1} {2}\r\n".format(x+0.1,y-0.1,z))
-          z=image[i,j]*zratio+random.random()*50 + 100
-          f.write("{0} {1} {2}\r\n".format(x-0.1,y+0.1,z))
-'''
+
 
 f.close()
