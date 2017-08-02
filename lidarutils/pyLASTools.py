@@ -31,8 +31,7 @@ class pyLASTools(object):
                         stderr=subprocess.STDOUT)
         out, err = p.communicate()
         if ((out != None) and ("ERROR" in out)) or ((err != None) and ("ERROR" in err)):
-            print "Error in command: {0} Message: {1}{2}".format(command,out,err)
-            raise 
+            Exception("Error in command: {0} Message: {1}{2}".format(command,out,err))
         if verbose > 0:
             print(out)
         return out, err
