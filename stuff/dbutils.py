@@ -71,6 +71,34 @@ class dbutils(object):
 
         return schema
 
+    def exists(self, tablename, where="", ignoreexcept=False):
+        """
+        Check if a row exists.
+
+        Usage:
+        exists(self._tablename, where="filename = 'NP_T-0002.CSV' AND x = 551575 AND y = 272625")
+        >>> False
+
+        :param tablename: A string with table name.
+        :param where: WHERE codition
+        :param ignoreexcept: A boolean.
+        :return: A boolean.
+        """
+        if where:
+            where = " WHERE " + where
+
+        sql = "SELECT EXISTS(SELECT 1 FROM {}{});".format(tablename, where)
+        try:
+            cur = self.conn.cursor()
+            cur.execute(sql)
+            result = cur.fetchone()
+            cur.close()
+            return result[0]
+        except pg.Error, e:
+            print e.diag.message_primary
+            if not ignoreexcept:
+                raise
+
     def execute(self,sql,autocommit=False,ignoreexcept=False):
         try:
             cur=self.conn.cursor()
@@ -89,10 +117,11 @@ class dbutils(object):
 
     def getdata(self,sql,ignoreexcept=False):
         try:
-            cur=self.conn.cursor()
+            cur = self.conn.cursor()
             cur.execute(sql)
-            return cur.fetchall()
-            print
+            result = cur.fetchall()
+            cur.close()
+            return result
         except pg.Error, e:
             print e.diag.message_primary
             if not ignoreexcept:
@@ -125,8 +154,9 @@ class dbutils(object):
 
     def selectMappedTable(self, tablename, where="", limit=""):
         """
-        Select mapped attributes from a given table. Example:
+        Select mapped attributes from a given table.
 
+        Usage:
         selectMappedTable("metrics")
         selectMappedTable("metrics", where="filename='NP_T-0225.CSV'")
         selectMappedTable("metrics", where="filename='NP_T-0225.CSV'", limit="1")
@@ -224,7 +254,11 @@ VALUES ('''.format(tablename,fieldssql[:-1])
                     continue
             sql=sqlini
             for field in fields:
-                sql+="'{0}',".format(rec[field])
+                value = rec[field]
+                if value == nullvalue:
+                    sql+="NULL,"
+                else:
+                    sql+="'{0}',".format(value)
             self.execute(sql[:-1]+')')
             count=count+1
             if (count % 1000) == 0:

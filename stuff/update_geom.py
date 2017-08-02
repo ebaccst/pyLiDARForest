@@ -1,11 +1,13 @@
-import logging
-import time
-import os
 import argparse
+import logging
+import os
+import time
 from re import search
+
+from osgeo import ogr
+
 from dbutils import dbutils
 from transect import Transect
-from osgeo import ogr
 
 
 class UpdateGeom(object):
@@ -14,55 +16,55 @@ class UpdateGeom(object):
     @staticmethod
     def processCmdLine():
         parser = argparse.ArgumentParser(description="Update column geom.")
-        parser.add_argument("-t", "--transects", type=str, help="Path of the Transects.")
-        parser.add_argument("-d", "--dbname", type=str, help="DB name.")
-        parser.add_argument("-u", "--user", type=str, help="Postgres user. Default 'postgres'.")
-        parser.add_argument("-p", "--password", type=str, help="Postgres password. Default ''")
-        parser.add_argument("-ip", "--ip", type=str, help="Postgres host.")
-        parser.add_argument("-ts", "--tablespace", type=str, help="Default 'pg_default'.")
-        parser.add_argument("-n", "--tablename", type=str, help="Postgres table name. Default 'metrics'.")
-        parser.add_argument("-tf", "--transectfield", type=str, help="Table column name. Default 'filename'.")
-        parser.add_argument("-xf", "--xfield", type=str, help="X field name. Default 'x'.")
-        parser.add_argument("-yf", "--yfield", type=str, help="Y field name. Default 'y'.")
-        parser.add_argument("-xd", "--xdim", type=int, help="X dimension. Default '5000'.")
-        parser.add_argument("-yd", "--ydim", type=int, help="Y dimension. Default '5000'.")
-        parser.add_argument("-e", "--epsg", type=int, help="EPSG of new column. Default '4674'.")
-        parser.add_argument("-l", "--log", type=str, help="Logs to a file. Default 'console'.")
+        parser.add_argument("-t", "--transects", type=str, default=r"G:\TRANSECTS",
+                            help="Path of the Transects. Default 'G:\TRANSECTS'")
+        parser.add_argument("-d", "--dbname", type=str, default="eba", help="DB name. Default 'eba'")
+        parser.add_argument("-u", "--user", type=str, default="eba", help="Postgres user. Default 'eba'.")
+        parser.add_argument("-p", "--password", type=str, default="ebaeba18",
+                            help="Postgres password. Default 'ebaeba18'")
+        parser.add_argument("-ip", "--ip", type=str, default="localhost", help="Postgres host. Default 'localhost'")
+        parser.add_argument("-ts", "--tablespace", type=str, default="pg_default", help="Default 'pg_default'.")
+        parser.add_argument("-n", "--tablename", type=str, default="metrics",
+                            help="Postgres table name. Default 'metrics'.")
+        parser.add_argument("-tf", "--transectfield", type=str, default="filename",
+                            help="Table column name. Default 'filename'.")
+        parser.add_argument("-xf", "--xfield", type=str, default="x", help="X field name. Default 'x'.")
+        parser.add_argument("-yf", "--yfield", type=str, default="y", help="Y field name. Default 'y'.")
+        parser.add_argument("-xd", "--xdim", type=int, default=50, help="X dimension. Default '50'.")
+        parser.add_argument("-yd", "--ydim", type=int, default=50, help="Y dimension. Default '50'.")
+        parser.add_argument("-e", "--epsg", type=int, default=5880, help="EPSG of new column. Default '5880'.")
+        parser.add_argument("-s", "--sql", type=str, default=None, help="Export to a SQL file. Default 'None'.")
+        parser.add_argument("-l", "--log", type=str, default=None, help="Logs to a file. Default 'None'.")
 
         args = parser.parse_args()
         if not os.path.isdir(args.transects):
             raise RuntimeError("Directory '{}' not found".format(args.transects))
         return args
 
-    def __init__(self, transectsPath, dbname, user="postgres", password="", host="localhost", tablespace="pg_default",
-                 tableName="metrics", transenctField="filename", xfield="x", yfield="y", xdim=5000, ydim=5000,
-                 epsg=4674):
-        if not transectsPath:
+    def __init__(self, transects, db, tablename, transectfield, xfield, yfield, xdim, ydim, epsg, sql):
+        if not transects:
             raise RuntimeError("Argument 'transectsPath' is mandatory.")
 
-        if not dbname:
-            raise RuntimeError("Argument 'dbname' is mandatory.")
-
-        self._db = dbutils(host, user, password, dbname, tablespace)
-        self._transectsPath = transectsPath
-        self._tableName = tableName
-        self._transectField = transenctField
+        self._db = db
+        self._transects = transects
+        self._tablename = tablename
+        self._transectfield = transectfield
         self._xfield = xfield
         self._yfield = yfield
-        self._xdim = xdim
-        self._ydim = ydim
+        self._xdim = xdim - (xdim / 2)
+        self._ydim = ydim - (ydim / 2)
         self._epsg = epsg
+        self._sql = sql
 
-    def run(self, log=None):
-        if log:
-            logging.basicConfig(filename=log, level=logging.INFO)
-        else:
-            logging.basicConfig(level=logging.INFO)
+    def run(self):
+        schema = self._db.getTableSchema(self._tablename)
+        errors, transectsProj = self.__getTransectsProj()
+        if self._sql:
+            self._sql = open(self._sql, "a")
+            self._sql.write(self.__getDropColumnSQL() + "\n")
+            self._sql.write(self.__getAddGeomColumnSQL() + "\n")
+            self.__writeCreateGeom(errors, transectsProj)
 
-        logging.info("Start update..")
-        t0 = time.clock()
-
-        schema = self._db.getTableSchema(self._tableName)
         if "geom" in schema:
             dropResult = self._db.execute(self.__getDropColumnSQL(), autocommit=True)
             logging.info("Drop column SQL result: {}".format(str(dropResult)))
@@ -70,34 +72,26 @@ class UpdateGeom(object):
         addResult = self._db.execute(self.__getAddGeomColumnSQL(), autocommit=True)
         logging.info("Add column SQL result: {}".format(str(addResult)))
 
-        transectsProj = {}
-
-        def setTransectEPSG(row):
-            if row and len(row) > 0:
-                filename = row[0]
-                if filename not in transectsProj:
-                    try:
-                        transect = Transect(self._transectsPath, filename)
-                        srs = self.__getSpatialRef(transect)
-                        geogcs = srs.GetAttrValue("GEOGCS")
-                        datum = srs.GetAttrValue("DATUM")
-                        zone = srs.GetUTMZone()
-                        transectsProj[filename] = self.__getEPSG(filename, zone, geogcs, datum)
-                    except Exception as e:
-                        logging.error(e)
-
-        errors = {}
-        self._db.forEachData(self.__getTransectFilenameSQL(), setTransectEPSG)
-        for filename, proj in transectsProj.iteritems():
-            try:
-                result = self._db.execute(self.__getUpdateGeomColumnSQL(filename, proj), autocommit=True)
-                logging.info("Update geom SQL result: {}".format(str(result)))
-                logging.info("The geom of '{}' was updated with projection '{}'".format(filename, proj))
-            except Exception as e:
-                logging.error("Error to process '{}': {}".format(filename, e))
-                errors[filename] = e
+        self.__executeCreateGeom(errors, transectsProj)
 
         projections = self._db.getdata(self.__getDistinctEPSGSQL())
+        if self._sql:
+            self.__writeReproject(errors, projections)
+            self._sql.write(self.__getSetSRIDSQL() + "\n")
+        self.__executeReproject(errors, projections)
+
+        setSRIDResult = self._db.execute(self.__getSetSRIDSQL(), autocommit=True)
+        logging.info("Set SRID SQL result: {}".format(str(setSRIDResult)))
+
+        if len(errors) > 0:
+            logging.warning("Files with problems: ")
+            for filename, error in errors.iteritems():
+                logging.warning("{} with {}".format(filename, error))
+
+        if self._sql:
+            self._sql.close()
+
+    def __executeReproject(self, errors, projections):
         for epsg in projections:
             try:
                 epsg = epsg[0]
@@ -108,21 +102,42 @@ class UpdateGeom(object):
                 logging.error("Error to process '{}': {}".format(epsg, e))
                 errors[epsg] = e
 
-        setSRIDResult = self._db.execute(self.__getSetSRIDSQL(), autocommit=True)
-        logging.info("Set SRID SQL result: {}".format(str(setSRIDResult)))
+    def __executeCreateGeom(self, errors, transectsProj):
+        for number, proj in transectsProj.iteritems():
+            try:
+                result = self._db.execute(self.__getUpdateGeomColumnSQL(number, proj), autocommit=True)
+                logging.info("Update geom SQL result: {}".format(str(result)))
+                logging.info("The geom of '{}' was updated with projection '{}'".format(number, proj))
+            except Exception as e:
+                logging.error("Error to process '{}': {}".format(number, e))
+                errors[number] = e
 
-        if len(errors) > 0:
-            logging.warning("Files with problems: ")
-            for filename, error in errors.iteritems():
-                logging.warning("{} with {}".format(filename, error))
+    def __getTransectsProj(self):
+        transectsProj = {}
 
-        logging.info("The column geom was created in {} seconds.".format(time.clock() - t0))
+        def setTransectEPSG(row):
+            if row and len(row) > 0:
+                filename = row[0]
+                if filename not in transectsProj:
+                    try:
+                        transect = Transect(self._transects, filename)
+                        srs = self.__getSpatialRef(transect)
+                        geogcs = srs.GetAttrValue("GEOGCS")
+                        datum = srs.GetAttrValue("DATUM")
+                        zone = srs.GetUTMZone()
+                        transectsProj[transect.number] = self.__getEPSG(filename, zone, geogcs, datum)
+                    except Exception as errorEPSG:
+                        logging.error(errorEPSG)
+
+        errors = {}
+        self._db.forEachData(self.__getTransectFilenameSQL(), setTransectEPSG)
+        return errors, transectsProj
 
     def __getAddGeomColumnSQL(self):
-        return "ALTER TABLE {} ADD COLUMN geom geometry(Polygon);".format(self._tableName)
+        return "ALTER TABLE {} ADD COLUMN geom geometry(Polygon);".format(self._tablename)
 
     def __getDistinctEPSGSQL(self):
-        return "SELECT DISTINCT(ST_SRID(geom)) FROM {};".format(self._tableName)
+        return "SELECT DISTINCT(ST_SRID(geom)) FROM {};".format(self._tablename)
 
     def __getEPSG(self, filename, zone, geogcs, datum):
         if not (search("(GCS)*(SIRGAS)*(2000)", geogcs) or search("(D)*(SIRGAS)*(2000)", datum)):
@@ -146,13 +161,13 @@ class UpdateGeom(object):
             -22: "31982",
             -23: "31983",
             -24: "31984",
-            -25: "31985",
+            -25: "31985"
         }
 
         return sirgas[zone]
 
     def __getDropColumnSQL(self):
-        return "ALTER TABLE {} DROP COLUMN geom;".format(self._tableName)
+        return "ALTER TABLE {} DROP COLUMN geom;".format(self._tablename)
 
     def __getSpatialRef(self, transect):
         driver = ogr.GetDriverByName("ESRI Shapefile")
@@ -166,14 +181,13 @@ class UpdateGeom(object):
             return srs
 
     def __getSetSRIDSQL(self):
-        return "SELECT UpdateGeometrySRID('public', '{}', 'geom', {});".format(self._tableName, self._epsg)
+        return "SELECT UpdateGeometrySRID('public', '{}', 'geom', {});".format(self._tablename, self._epsg)
 
     def __getTransformSQL(self, epsg):
-        return """
-        UPDATE metrics
-        SET geom = ST_Transform(geom, {})
-        WHERE ST_SRID(geom) = {};
-        """.format(self._epsg, epsg)
+        return """UPDATE metrics
+SET geom = ST_Transform(geom, {})
+WHERE ST_SRID(geom) = {};
+""".format(self._epsg, epsg)
 
     def __getTransectBoudingBox(self, transect):
         BASE_NAME_DIR = "T-"
@@ -181,7 +195,7 @@ class UpdateGeom(object):
         BASE_EXTENSION = ".shp"
 
         transectDirName = BASE_NAME_DIR + transect.number
-        originalTransectDir = os.path.join(self._transectsPath, transectDirName)
+        originalTransectDir = os.path.join(self._transects, transectDirName)
         if os.path.isdir(originalTransectDir):
             boudingBoxFile = BASE_NAME_TRANSECT + transect.number + BASE_EXTENSION
             for pol_dir in os.listdir(originalTransectDir):
@@ -191,15 +205,13 @@ class UpdateGeom(object):
             raise RuntimeError("Directory '{}' not found".format(originalTransectDir))
 
     def __getTransectFilenameSQL(self):
-        return "SELECT DISTINCT({}) FROM {};".format(self._transectField, self._tableName)
+        return "SELECT DISTINCT({}) FROM {};".format(self._transectfield, self._tablename)
 
-    def __getUpdateGeomColumnSQL(self, filename, proj):
-        return """
-           UPDATE {0}
-           SET geom = ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[ST_MakePoint({1}, {2}), ST_MakePoint({1} + {3}, {2}), ST_MakePoint({1} + {3}, {2} + {4}), ST_MakePoint({1}, {2} + {4}), ST_MakePoint({1}, {2})])), {5})
-           WHERE {6} = '{7}';
-           """.format(self._tableName, self._xfield, self._yfield, self._xdim, self._ydim, proj, self._transectField,
-                      filename)
+    def __getUpdateGeomColumnSQL(self, number, proj):
+        return """UPDATE {0}
+SET geom = ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[ST_MakePoint({1} - {3}, {2} - {4}), ST_MakePoint({1} + {3}, {2} - {4}), ST_MakePoint({1} + {3}, {2} + {4}), ST_MakePoint({1} - {3}, {2} + {4}), ST_MakePoint({1} - {3}, {2} - {4})])), {5})
+WHERE {6} ~ '{7}';
+""".format(self._tablename, self._xfield, self._yfield, self._xdim, self._ydim, proj, self._transectfield, number)
 
     def __hasExtension(self, filename, extension):
         return filename.lower().endswith(extension, -1 * len(extension))
@@ -207,15 +219,43 @@ class UpdateGeom(object):
     def __isPolygonDir(self, dirname):
         return dirname.startswith("POLIGONO")
 
+    def __writeCreateGeom(self, errors, transectsProj):
+        keys = sorted(transectsProj.keys())
+        for number in keys:
+            proj = transectsProj[number]
+            try:
+                self._sql.write(self.__getUpdateGeomColumnSQL(number, proj) + "\n")
+            except Exception as e:
+                logging.error("Error to write '{}': {}".format(number, e))
+                errors[number] = e
+
+    def __writeReproject(self, errors, projections):
+        for epsg in sorted(projections):
+            try:
+                epsg = epsg[0]
+                self._sql.write(self.__getTransformSQL(epsg) + "\n")
+            except Exception as e:
+                logging.error("Error to write '{}': {}".format(epsg, e))
+                errors[epsg] = e
+
 
 if __name__ == "__main__":
     try:
         args = UpdateGeom.processCmdLine()
-        up = UpdateGeom(transectsPath=args.transects, dbname=args.dbname, user=args.user, password=args.password,
-                        host=args.ip, tablespace=args.tablespace,
-                        tableName=args.tablename, transenctField=args.transectfield, xfield=args.xfield,
-                        yfield=args.yfield, xdim=args.xdim, ydim=args.ydim, epsg=args.epsg)
+        if args.log:
+            logging.basicConfig(filename=args.log, level=logging.INFO)
+            logging.getLogger().addHandler(logging.StreamHandler())
+        else:
+            logging.basicConfig(level=logging.INFO)
 
-        up.run(log=args.log)
+        logging.info("Start update..")
+        t0 = time.clock()
+
+        db = dbutils(args.ip, args.user, args.password, args.dbname, args.tablespace)
+        up = UpdateGeom(args.transects, db, args.tablename, args.transectfield, args.xfield, args.yfield, args.xdim,
+                        args.ydim, args.epsg, args.sql)
+        up.run()
+
+        logging.info("The column geom was created in {} seconds.".format(time.clock() - t0))
     except Exception as e:
         raise RuntimeError("Unexpected error: {}".format(e))
