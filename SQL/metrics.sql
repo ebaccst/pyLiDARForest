@@ -6,9 +6,9 @@ CREATE SEQUENCE public.metrics_id_seq
 INCREMENT 1
 MINVALUE 1
 MAXVALUE 9223372036854775807
-START 4386667
+START 1
 CACHE 1;
-ALTER TABLE public.tempimport_id_seq
+ALTER TABLE public.metrics_id_seq
   OWNER TO postgres;
 
 -- Create table
@@ -224,25 +224,36 @@ EXECUTE PROCEDURE public.fbiomasslongo_abcd_tch();
 -----------------------------------------------------------------------------------------------------------------
 -- Create Function
 
--- DROP FUNCTION public.fbiomasslongo_average();
-CREATE OR REPLACE FUNCTION public.fbiomasslongo_average()
+-- DROP FUNCTION public.fupdate_amazon_biomass();
+
+CREATE OR REPLACE FUNCTION fupdate_amazon_biomass(transect_id INTEGER)
   RETURNS VOID AS $$
+DECLARE
+    amazon_transects CURSOR FOR SELECT polys.*
+                                FROM amazon_palsar_hv polys INNER JOIN transects bb
+                                    ON ST_Intersects(bb.polyflown, polys.geom)
+                                WHERE bb.id = transect_id;
 BEGIN
-  IF NEW.amazon_id IS NOT NULL
-  THEN
-    UPDATE amazon
-    SET amazon.agblongo_als_total = AVG(metrics.agblongo_als_total),
-      amazon.agblongo_als_alive   = AVG(metrics.agblongo_als_alive),
-      amazon.agblongo_tch_total   = AVG(metrics.agblongo_tch_total),
-      amazon.agblongo_tch_alive   = AVG(metrics.agblongo_tch_alive)
-    FROM metrics
-    WHERE metrics.amazon_id = NEW.amazon_id AND amazon.ogc_id = NEW.amazon_id;
-  END IF;
+  FOR amazon IN amazon_transects LOOP
+    UPDATE amazon_palsar_hv
+    SET agblongo_als_total = metric.agblongo_als_total,
+      agblongo_als_alive   = metric.agblongo_als_alive,
+      agblongo_tch_total   = metric.agblongo_tch_total,
+      agblongo_tch_alive   = metric.agblongo_tch_alive
+    FROM (SELECT
+            AVG(mt.agblongo_als_total) AS agblongo_als_total,
+            AVG(mt.agblongo_als_alive) AS agblongo_als_alive,
+            AVG(mt.agblongo_tch_total) AS agblongo_tch_total,
+            AVG(mt.agblongo_tch_alive) AS agblongo_tch_alive
+          FROM metrics mt INNER JOIN amazon_palsar_hv amz ON ST_Intersects(amz.geom, mt.geom)
+          WHERE amz.ogc_fid = amazon.ogc_fid) AS metric
+    WHERE ogc_fid = amazon.ogc_fid;
+  END LOOP;
 END$$
-LANGUAGE plpgsql VOLATILE
-COST 100;
-ALTER FUNCTION public.fbiomasslongo_average()
-OWNER TO postgres;
+LANGUAGE plpgsql;
+
+-- Usage:
+-- SELECT fupdate_amazon_biomass(597);
 
 -- Create Trigger
 
@@ -251,7 +262,7 @@ CREATE TRIGGER amazon_update_biomass
 AFTER UPDATE
   ON public.metrics
 FOR EACH ROW
-EXECUTE PROCEDURE public.fbiomasslongo_average();
+EXECUTE PROCEDURE public.fupdate_metrics_amazon_id(new.transect_id);
 
 -----------------------------------------------------------------------------------------------------------------
 -- Get table schema
@@ -467,17 +478,3 @@ UPDATE amazon
 SET transect_id = transects.id
 FROM transects
 WHERE transects.id = 597 AND ST_Intersects(transects.polyflown, amazon.geom);
-
-SELECT *
-FROM metrics
-WHERE amazon_id IS NOT NULL
-ORDER BY filename
-LIMIT 1000; -- amazon_id: 19770827
-
-SELECT
-  AVG(agblongo_als_total) AS agblongo_als_total,
-  AVG(agblongo_als_alive) AS agblongo_als_alive,
-  AVG(agblongo_tch_total) AS agblongo_tch_total,
-  AVG(agblongo_tch_alive) AS agblongo_tch_alive
-FROM metrics
-WHERE amazon_id = 19770827;
