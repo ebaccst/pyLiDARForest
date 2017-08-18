@@ -18,11 +18,11 @@ Options:
 import argparse
 import logging
 import os
-import time
 
 import numpy as np
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
+from time import time
 
 from dbutils import dbutils
 
@@ -319,13 +319,13 @@ if __name__ == "__main__":
 
     try:
         logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(args.boundingbox, args.rasterpath))
-        ti = time.clock()
+        ti = time()
 
         zs = ZonalStats(args.boundingbox, args.table, args.rasterpath, args.nodata)
         zs.extract_parallel(args.starswith, args.endswith)
         zs.close()
 
-        tf_sec = int((time.clock() - ti) % 60)
+        tf_sec = int((time() - ti) % 60)
         tf_min = int((tf_sec / 60) % 60)
         tf_h = int((tf_min / 60) % 24)
         logging.info("Table created with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))
