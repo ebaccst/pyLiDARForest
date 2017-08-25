@@ -64,7 +64,7 @@ class ZonalStats(object):
         return progress
 
     def __init__(self, bouding_box, table, raster, nodata_value=None, server="localhost", dbname="eba", user="eba",
-                 password="ebaeba18", tablespace="pg_default"):
+                 password="ebaeba18", tablespace="pg_default", processed_col="processed"):
         db = dbutils(server, user, password, dbname, tablespace)
         assert db
 
@@ -85,6 +85,7 @@ class ZonalStats(object):
 
         newbb_defn = newbb.GetLayerDefn()
         self._geom_column = newbb.GetGeometryColumn()
+        self._processed_column = processed_col
         self._fields = self.__names_reference(newbb_defn)
 
         self._db = db
@@ -162,6 +163,7 @@ class ZonalStats(object):
                 field_value = nullvalue
             values[name_ref] = str(field_value)
         values[self._geom_column] = self.__geom_from_wkt(geometry.ExportToWkt())
+        values[self._processed_column] = "TRUE"
         return values
 
     def __raster_stats(self, feat, geometry):
