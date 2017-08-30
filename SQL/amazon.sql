@@ -163,23 +163,8 @@ BEGIN
     ELSEIF biomass >= 30 AND biomass < 35
       THEN
         classe:='30|--35';
-    ELSEIF biomass >= 35 AND biomass < 40
-      THEN
-        classe:='35|--40';
-    ELSEIF biomass >= 40 AND biomass < 45
-      THEN
-        classe:='40|--45';
-    ELSEIF biomass >= 45 AND biomass < 50
-      THEN
-        classe:='45|--50';
-    ELSEIF biomass >= 50 AND biomass < 60
-      THEN
-        classe:='50|--60';
-    ELSEIF biomass >= 60 AND biomass < 80
-      THEN
-        classe:='60|--80';
     ELSE
-      classe:='80|--';
+      classe:='35|--';
     END IF;
   END IF;
   RETURN classe;
