@@ -11,7 +11,7 @@ from osgeo.gdalconst import *
 
 class CellularSpace(object):
     def __init__(self, raster, table, epsg=5880, geom_type=ogr.wkbPolygon, server="localhost", dbname="eba", user="eba",
-                 password="ebaeba18", tablespace="pg_default"):
+                 password="ebaeba18"):
         self._xmin, self._xmax, self._ymin, self._ymax, self._width, self._height = CellularSpace.extent(raster)
 
         conn_str = "PG: host=%s dbname=%s user=%s password=%s" % (server, dbname, user, password)
