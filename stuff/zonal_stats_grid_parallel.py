@@ -18,11 +18,11 @@ Options:
 import argparse
 import logging
 import os
-import time
 
 import numpy as np
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
+from time import time
 
 from dbutils import dbutils
 
@@ -64,7 +64,7 @@ class ZonalStats(object):
         return progress
 
     def __init__(self, bouding_box, table, raster, nodata_value=None, server="localhost", dbname="eba", user="eba",
-                 password="ebaeba18", tablespace="pg_default"):
+                 password="ebaeba18", tablespace="pg_default", processed_col="processed"):
         db = dbutils(server, user, password, dbname, tablespace)
         assert db
 
@@ -85,6 +85,7 @@ class ZonalStats(object):
 
         newbb_defn = newbb.GetLayerDefn()
         self._geom_column = newbb.GetGeometryColumn()
+        self._processed_column = processed_col
         self._fields = self.__names_reference(newbb_defn)
 
         self._db = db
@@ -162,6 +163,7 @@ class ZonalStats(object):
                 field_value = nullvalue
             values[name_ref] = str(field_value)
         values[self._geom_column] = self.__geom_from_wkt(geometry.ExportToWkt())
+        values[self._processed_column] = "TRUE"
         return values
 
     def __raster_stats(self, feat, geometry):
@@ -319,13 +321,13 @@ if __name__ == "__main__":
 
     try:
         logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(args.boundingbox, args.rasterpath))
-        ti = time.clock()
+        ti = time()
 
         zs = ZonalStats(args.boundingbox, args.table, args.rasterpath, args.nodata)
         zs.extract_parallel(args.starswith, args.endswith)
         zs.close()
 
-        tf_sec = int((time.clock() - ti) % 60)
+        tf_sec = int((time() - ti) % 60)
         tf_min = int((tf_sec / 60) % 60)
         tf_h = int((tf_min / 60) % 24)
         logging.info("Table created with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))

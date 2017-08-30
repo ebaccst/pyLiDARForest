@@ -16,5 +16,6 @@
 *.pyproj
 
 # User
-app/
+app/*
+*.output
 
