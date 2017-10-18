@@ -94,12 +94,12 @@ CREATE OR REPLACE FUNCTION fupdate_amazon_biomass(transect_id INTEGER)
   RETURNS VOID AS $$
 DECLARE
     amazon_transects CURSOR FOR SELECT polys.*
-                                FROM amazon_palsar_hv polys INNER JOIN transects bb
+                                FROM amazon_trmm_new polys INNER JOIN transects bb
                                     ON ST_Intersects(bb.polyflown, polys.geom)
                                 WHERE bb.id = transect_id;
 BEGIN
   FOR amazon IN amazon_transects LOOP
-    UPDATE amazon_palsar_hv
+    UPDATE amazon_trmm_new
     SET agblongo_als_total = metric.agblongo_als_total,
       agblongo_als_alive   = metric.agblongo_als_alive,
       agblongo_tch_total   = metric.agblongo_tch_total,
@@ -109,9 +109,9 @@ BEGIN
             AVG(mt.agblongo_als_alive) AS agblongo_als_alive,
             AVG(mt.agblongo_tch_total) AS agblongo_tch_total,
             AVG(mt.agblongo_tch_alive) AS agblongo_tch_alive
-          FROM metrics mt INNER JOIN amazon_palsar_hv amz ON ST_Intersects(amz.geom, mt.geom)
-          WHERE amz.ogc_fid = amazon.ogc_fid) AS metric
-    WHERE ogc_fid = amazon.ogc_fid;
+          FROM metrics mt INNER JOIN amazon_trmm_new amz ON ST_Intersects(amz.geom, mt.geom)
+          WHERE amz.fid = amazon.fid) AS metric
+    WHERE fid = amazon.fid;
   END LOOP;
 END$$
 LANGUAGE plpgsql;
@@ -126,7 +126,43 @@ CREATE TRIGGER amazon_update_biomass
 AFTER UPDATE
   ON public.metrics
 FOR EACH ROW
-EXECUTE PROCEDURE public.fupdate_metrics_amazon_id(new.transect_id);
+EXECUTE PROCEDURE public.fupdate_amazon_biomass(new.transect_id);
+
+-----------------------------------------------------------------------------------------------------------------
+-- Create Function
+
+-- DROP FUNCTION public.fupdate_amazon_chm(transect_id INTEGER);
+
+CREATE OR REPLACE FUNCTION fupdate_amazon_chm(transect_id INTEGER)
+  RETURNS VOID AS $$
+DECLARE
+    amazon_transects CURSOR FOR SELECT polys.*
+                                FROM amazon_trmm polys INNER JOIN transects bb
+                                    ON ST_Intersects(bb.polyflown, polys.geom)
+                                WHERE bb.id = transect_id;
+BEGIN
+  FOR amazon IN amazon_transects LOOP
+    UPDATE amazon_trmm
+    SET chm = metric.chm
+    FROM (SELECT AVG(mt.chm) AS chm
+          FROM metrics mt INNER JOIN amazon_trmm amz ON ST_Intersects(amz.geom, mt.geom)
+          WHERE amz.ogc_fid = amazon.ogc_fid) AS metric
+    WHERE ogc_fid = amazon.ogc_fid;
+  END LOOP;
+END$$
+LANGUAGE plpgsql;
+
+-- Usage:
+-- SELECT fupdate_amazon_chm(597);
+
+-- Create Trigger
+
+-- DROP TRIGGER amazon_update_biomass ON public.metrics;
+CREATE TRIGGER amazon_update_biomass
+AFTER UPDATE
+  ON public.metrics
+FOR EACH ROW
+EXECUTE PROCEDURE public.fupdate_amazon_chm(new.transect_id);
 
 -----------------------------------------------------------------------------------------------------------------
 -- Create Function

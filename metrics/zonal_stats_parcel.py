@@ -19,6 +19,7 @@ import argparse
 import logging
 import os
 import time
+import traceback
 
 import numpy as np
 from osgeo import gdal, ogr
@@ -266,4 +267,4 @@ if __name__ == "__main__":
         tf_h = int((tf_min / 60) % 24)
         logging.info("Stats extracted with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))
     except Exception as e:
-        logging.error("Error to process '{}' and '{}': {}".format(args.vectorpath, args.rasterpath, str(e)))
+        logging.error("Error to process '{}' and '{}': {}\n{}\n".format(args.vectorpath, args.rasterpath, str(e), traceback.format_exc()))

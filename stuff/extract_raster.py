@@ -7,7 +7,7 @@ from osgeo import gdal, ogr
 
 
 class Extractor(object):
-    def __init__(self, statement, raster, output, format='GTiff', nodata=None, datatype=gdal.GDT_Float32,
+    def __init__(self, statement, raster, output, basename=None, format='GTiff', nodata=None, datatype=gdal.GDT_Float32,
                  bands=1, server="localhost", dbname="eba", user="eba", password="ebaeba18"):
         assert statement
         assert raster
@@ -41,13 +41,17 @@ class Extractor(object):
         self._datatype = datatype
         self._bands = bands
         self._layer = layer
+        self._basename = basename
 
     def rasterize(self, attributes):
         assert attributes
 
         for attr in attributes:
             logging.info("Rasterizing {}...".format(attr))
-            output = os.path.join(self._output, attr + ".tif")
+            name = attr + ".tif"
+            if self._basename:
+                name = self._basename + "_" + name
+            output = os.path.join(self._output, name)
             raster = self.new_raster_from_base(output)
             gdal.RasterizeLayer(raster, [self._bands], self._layer, options=["ATTRIBUTE={}".format(attr)])
             del raster
@@ -87,6 +91,7 @@ if __name__ == '__main__':
     parser.add_argument("-a", "--attribute", type=str, required=True, nargs='+', help="Column name to be exported.")
     parser.add_argument("-r", "--raster", type=str, required=True, help="Raster file to extract extent.")
     parser.add_argument("-o", "--outputdir", type=str, required=True, help="Path of the new raster.")
+    parser.add_argument("-b", "--basename", type=str, default=None, help="Basename. Default None.")
     parser.add_argument("-f", "--format", type=str, default="GTiff", help="Format of raster.")
     parser.add_argument("-n", "--nodata", type=float, default=None, help="No data value. Default None.")
     parser.add_argument("-t", "--datatype", default=gdal.GDT_Float32, help="Data type. Default GDT_Byte")
@@ -103,12 +108,9 @@ if __name__ == '__main__':
         logging.info("Running 'Extractor' with '{}' and '{}'...".format(args.statement, args.raster))
         ti = time()
 
-        ex = Extractor(args.statement, args.raster, args.outputdir, args.format, args.nodata, args.datatype)
+        ex = Extractor(args.statement, args.raster, args.outputdir, args.basename, args.format, args.nodata, args.datatype)
         ex.rasterize(args.attribute)
 
-        tf_sec = int((time() - ti) % 60)
-        tf_min = int((tf_sec / 60) % 60)
-        tf_h = int((tf_min / 60) % 24)
-        logging.info("Raster created with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))
+        logging.info("Raster created with success in {} seconds!".format(str(time() - ti)))
     except Exception as e:
         logging.error("Error to process '{}' and '{}': {}".format(args.statement, args.raster, str(e)))

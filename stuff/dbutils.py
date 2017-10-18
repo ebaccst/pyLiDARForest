@@ -37,7 +37,7 @@ class dbutils(object):
         for i in range(len(fields)):
             self.sqlvalidfieldnames.append(self.validatefieldname(fields[i]))
 
-    def getTableSchema(self, tablename, schema="public"):
+    def getTableSchema(self, tablename, schema="public", geom=True):
         """
         Get the table schema.
 
@@ -45,35 +45,26 @@ class dbutils(object):
         :param schema: Default 'public'.
         :return: A dictionary with schema.
         """
-        sql = """
-        SELECT 
-            g.column_name,
-            g.data_type,
-            g.character_maximum_length,
-            g.is_nullable,
-            g.udt_name,
-            f.type,
-            f.srid
-        FROM 
-             information_schema.columns as g JOIN
-             geometry_columns AS f 
-                 ON (g.table_schema = f.f_table_schema and g.table_name = f.f_table_name )
-        WHERE
-            table_schema = '{}' and
-            table_name = '{}';
-        """.format(schema, tablename)
+        sql_intro = "SELECT g.column_name, g.data_type, g.character_maximum_length, g.is_nullable, g.udt_name"
+        sql_end = "WHERE table_schema = '{}' and table_name = '{}';".format(schema, tablename)
+        if geom:
+            sql_middle = ", f.type, f.srid FROM information_schema.columns as g JOIN geometry_columns AS f ON (g.table_schema = f.f_table_schema and g.table_name = f.f_table_name)"
+        else:
+            sql_middle = " FROM information_schema.columns AS g "
 
-        data = self.getdata(sql)
+        data = self.getdata(sql_intro + sql_middle + sql_end)
         schema = {}
         for field in data:
             schema[field[0]] = {
                 "data_type": field[1],
                 "character_maximum_length": field[2],
                 "is_nullable": field[3],
-                "udt_name": field[4],
-                "geom_type": field[5],
-                "geom_srid": field[6]
+                "udt_name": field[4]
             }
+
+            if geom:
+                schema[field[0]]["geom_type"] = field[5]
+                schema[field[0]]["geom_srid"] = field[6]
 
         return schema
 
@@ -158,7 +149,7 @@ class dbutils(object):
             if not ignoreexcept:
                 raise
 
-    def selectMappedTable(self, tablename, where="", limit=""):
+    def selectMappedTable(self, tablename, where=None, limit=None, geom=True):
         """
         Select mapped attributes from a given table.
 
@@ -171,14 +162,23 @@ class dbutils(object):
         :param tablename: A string with table name.
         :param where: WHERE condition.
         :param limit: LIMIT condition
+        :param geom: boolean
         :return: List with the results.
         """
+        where = where or ""
+        limit = limit or ""
         if where:
+            if isinstance(where, list):
+                where = " AND ".join(where)
+            assert isinstance(where, str)
             where = "WHERE " + where
         if limit:
+            if isinstance(limit, int):
+                limit = str(limit)
+            assert isinstance(limit, str)
             limit = "LIMIT " + limit
 
-        schema = self.getTableSchema(tablename)
+        schema = self.getTableSchema(tablename, geom=geom)
         columns = sorted(schema.iterkeys())
         sql = "SELECT {} FROM {} {} {};".format(", ".join(columns), tablename, where, limit)
         result = []
