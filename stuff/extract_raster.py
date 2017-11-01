@@ -95,6 +95,7 @@ if __name__ == '__main__':
     parser.add_argument("-f", "--format", type=str, default="GTiff", help="Format of raster.")
     parser.add_argument("-n", "--nodata", type=float, default=None, help="No data value. Default None.")
     parser.add_argument("-t", "--datatype", default=gdal.GDT_Float32, help="Data type. Default GDT_Byte")
+    parser.add_argument("-d", "--dbname", type=str, default="eba", help="Database name. Default 'eba'.")
     parser.add_argument("-l", "--log", type=str, default=None, help="Logs to a file. Default 'console'.")
     args = parser.parse_args()
 
@@ -108,7 +109,8 @@ if __name__ == '__main__':
         logging.info("Running 'Extractor' with '{}' and '{}'...".format(args.statement, args.raster))
         ti = time()
 
-        ex = Extractor(args.statement, args.raster, args.outputdir, args.basename, args.format, args.nodata, args.datatype)
+        ex = Extractor(args.statement, args.raster, args.outputdir, args.basename, args.format, args.nodata,
+                       args.datatype, dbname=args.dbname)
         ex.rasterize(args.attribute)
 
         logging.info("Raster created with success in {} seconds!".format(str(time() - ti)))

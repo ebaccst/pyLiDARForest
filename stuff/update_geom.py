@@ -184,10 +184,10 @@ class UpdateGeom(object):
         return "SELECT UpdateGeometrySRID('public', '{}', 'geom', {});".format(self._tablename, self._epsg)
 
     def __getTransformSQL(self, epsg):
-        return """UPDATE metrics
+        return """UPDATE {}
 SET geom = ST_Transform(geom, {})
 WHERE ST_SRID(geom) = {};
-""".format(self._epsg, epsg)
+""".format(self._tablename, self._epsg, epsg)
 
     def __getTransectBoudingBox(self, transect):
         BASE_NAME_DIR = "T-"

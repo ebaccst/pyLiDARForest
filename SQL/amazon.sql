@@ -167,6 +167,73 @@ EXECUTE PROCEDURE public.fupdate_amazon_chm(new.transect_id);
 -----------------------------------------------------------------------------------------------------------------
 -- Create Function
 
+DROP FUNCTION public.fupdate_amazon_biomass_chm();
+CREATE OR REPLACE FUNCTION fupdate_amazon_biomass_chm()
+  RETURNS VOID AS $$
+DECLARE
+    intersection CURSOR FOR SELECT polys.*
+                            FROM amazon_palsar polys INNER JOIN transects bb ON ST_Intersects(bb.polyflown, polys.geom);
+BEGIN
+  FOR amazon IN intersection LOOP
+    UPDATE amazon_palsar
+    SET chm              = metric.avg_chm,
+      agblongo_tch_total = metric.agblongo_tch_total,
+      agblongo_tch_alive = metric.agblongo_tch_alive
+    FROM (SELECT
+            AVG(ch.chm)                AS avg_chm,
+            AVG(ch.agblongo_tch_total) AS agblongo_tch_total,
+            AVG(ch.agblongo_tch_alive) AS agblongo_tch_alive
+          FROM chm ch INNER JOIN amazon_palsar amz ON ST_Intersects(amz.geom, ch.geom)
+          WHERE amz.fid = amazon.fid) AS metric
+    WHERE fid = amazon.fid;
+  END LOOP;
+END$$
+LANGUAGE plpgsql;
+
+-- Usage:
+-- SELECT fupdate_amazon_biomass_chm();
+
+-----------------------------------------------------------------------------------------------------------------
+-- Create Function
+
+DROP FUNCTION public.fupdate_amazon_uncertainty();
+CREATE OR REPLACE FUNCTION fupdate_amazon_uncertainty()
+  RETURNS VOID AS $$
+DECLARE
+    intersection CURSOR FOR SELECT polys.*
+                            FROM
+                              amazon_palsar_17 polys INNER JOIN transects bb ON ST_Intersects(bb.polyflown, polys.geom);
+BEGIN
+  FOR amazon IN intersection LOOP
+    UPDATE amazon_palsar_17
+    SET elev_max = metric.elev_max,
+      agb        = metric.agb,
+      se_repr    = metric.se_repr,
+      se_pred    = metric.se_pred,
+      se_cal     = metric.se_cal,
+      se_total   = metric.se_total,
+      eps        = metric.eps
+    FROM (SELECT
+            AVG(un.elev_max) AS elev_max,
+            AVG(un.agb)      AS agb,
+            AVG(un.se_repr)  AS se_repr,
+            AVG(un.se_pred)  AS se_pred,
+            AVG(un.se_cal)   AS se_cal,
+            AVG(un.se_total) AS se_total,
+            AVG(un.eps)      AS eps
+          FROM uncertainty un INNER JOIN amazon_palsar_17 amz ON ST_Intersects(amz.geom, un.geom)
+          WHERE amz.gid = amazon.gid) AS metric
+    WHERE gid = amazon.gid;
+  END LOOP;
+END$$
+LANGUAGE plpgsql;
+
+-- Usage:
+-- SELECT fupdate_amazon_uncertainty();
+
+-----------------------------------------------------------------------------------------------------------------
+-- Create Function
+
 -- DROP FUNCTION public.fbiomass_classes(biomass DOUBLE PRECISION );
 
 CREATE OR REPLACE FUNCTION fbiomass_classes(biomass DOUBLE PRECISION)
