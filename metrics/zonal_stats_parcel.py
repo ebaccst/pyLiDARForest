@@ -93,8 +93,10 @@ def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=Tr
     out_vector = {}
     if export_result:
         out_path, vector_filename = os.path.split(vector_path)
-        out_path = os.path.join(out_path, "zonal_stats_" + vector_filename)
-        out_layer_name = os.path.splitext(vector_filename)[0]
+        raster_filename = os.path.splitext(os.path.basename(raster_path))[0]
+        out_basename = raster_filename + "_" + vector_filename
+        out_path = os.path.join(out_path, "zonal_stats_" + out_basename)
+        out_layer_name = os.path.splitext(out_basename)[0]
 
         out_driver = vds.GetDriver()
         if os.path.exists(out_path):
@@ -115,7 +117,8 @@ def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=Tr
             'zs_count': int,
             'zs_fid': int,
             'zs_area': float,
-            'zs_file': str
+            'zs_file': str,
+            'zs_cv': float
         }
 
         for i in range(0, in_layer_defn.GetFieldCount()):
@@ -187,15 +190,20 @@ def zonal_stats(vector_path, raster_path, nodata_value=-9999.0, export_result=Tr
         }
 
         try:
+            zs_mean = float(masked.mean())
+            zs_std = float(masked.std())
             masked_stats = {
                 'zs_min': float(masked.min()),
-                'zs_mean': float(masked.mean()),
+                'zs_mean': zs_mean,
                 'zs_max': float(masked.max()),
-                'zs_std': float(masked.std()),
+                'zs_std': zs_std,
                 'zs_sum': float(masked.sum()),
                 'zs_count': int(masked.count()),
             }
 
+            if zs_mean > 0:
+                zs_cv = (zs_std / zs_mean) * 100
+                masked_stats['zs_cv'] = zs_cv
             feature_stats.update(masked_stats)
         except Exception as masked_error:
             logging.error("Error to np.ma.MaskedArray: {}".format(str(masked_error)))
