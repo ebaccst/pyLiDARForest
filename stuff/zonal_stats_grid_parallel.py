@@ -18,6 +18,7 @@ Options:
 import argparse
 import logging
 import os
+import traceback
 
 import numpy as np
 from osgeo import gdal, ogr
@@ -84,6 +85,7 @@ class ZonalStats(object):
         assert os.path.isdir(raster)
 
         newbb_defn = newbb.GetLayerDefn()
+        self._fid_column = newbb.GetFIDColumn()
         self._geom_column = newbb.GetGeometryColumn()
         self._processed_column = processed_col
         self._fields = self.__names_reference(newbb_defn)
@@ -162,6 +164,7 @@ class ZonalStats(object):
             if not field_value:
                 field_value = nullvalue
             values[name_ref] = str(field_value)
+        values[self._fid_column] = str(feat.GetFID())
         values[self._geom_column] = self.__geom_from_wkt(geometry.ExportToWkt())
         values[self._processed_column] = "TRUE"
         return values
@@ -285,7 +288,9 @@ class ZonalStats(object):
         return rasters
 
     def __names_reference(self, table_defn):
-        names = [table_defn.GetFieldDefn(i).GetNameRef() for i in range(0, table_defn.GetFieldCount())]
+        names = [self._fid_column]
+        for i in range(0, table_defn.GetFieldCount()):
+            names.append(table_defn.GetFieldDefn(i).GetNameRef())
         names.append(self._geom_column)
         return names
 
@@ -310,6 +315,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--starswith", type=float, required=True, help="Initial feature identifier.")
     parser.add_argument("-e", "--endswith", type=float, required=True, help="Final feature identifier.")
     parser.add_argument("-n", "--nodata", type=float, default=None, help="No data value. Default None.")
+    parser.add_argument("-d", "--dbname", type=str, default="eba", help="Database name. Default 'eba'.")
     parser.add_argument("-l", "--log", type=str, default=None, help="Logs to a file. Default 'console'.")
     args = parser.parse_args()
 
@@ -323,13 +329,10 @@ if __name__ == "__main__":
         logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(args.boundingbox, args.rasterpath))
         ti = time()
 
-        zs = ZonalStats(args.boundingbox, args.table, args.rasterpath, args.nodata)
+        zs = ZonalStats(args.boundingbox, args.table, args.rasterpath, args.nodata, dbname=args.dbname)
         zs.extract_parallel(args.starswith, args.endswith)
         zs.close()
 
-        tf_sec = int((time() - ti) % 60)
-        tf_min = int((tf_sec / 60) % 60)
-        tf_h = int((tf_min / 60) % 24)
-        logging.info("Table created with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))
+        logging.info("Table created with success in {} seconds!".format(str(time() - ti)))
     except Exception as e:
-        logging.error("Error to process '{}' and '{}': {}".format(args.boundingbox, args.rasterpath, str(e)))
+        logging.error("Error to process '{}' and '{}': {}\n{}\n".format(args.boundingbox, args.rasterpath, str(e), traceback.format_exc()))

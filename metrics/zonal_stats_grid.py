@@ -19,6 +19,7 @@ import argparse
 import logging
 import os
 import time
+import traceback
 
 import numpy as np
 from osgeo import gdal, ogr
@@ -89,10 +90,10 @@ class ZonalStats(object):
                         'nodata': nodata
                     }
                 except Exception as load_error:
-                    logging.error("Error to load raster '{}': {}".format(basename, str(load_error)))
+                    logging.error("Error to load raster '{}': {}\n{}\n".format(basename, load_error, traceback.format_exc()))
         return rasters
 
-    def __init__(self, bouding_box, raster, nodata_value=None, server="localhost", dbname="eba", user="eba",
+    def __init__(self, bouding_box, raster, nodata_value=None, statement=None, server="localhost", dbname="eba", user="eba",
                  password="ebaeba18"):
         conn_str = "PG: host=%s dbname=%s user=%s password=%s" % (server, dbname, user, password)
 
@@ -100,8 +101,12 @@ class ZonalStats(object):
         conn = ogr.Open(conn_str)
         assert conn
 
-        logging.info("Loading boundig box: {}".format(bouding_box))
-        bb = conn.GetLayer(bouding_box)
+        if statement:
+            logging.info("Querying data source and read in the extent ({})".format(statement))
+            bb = conn.ExecuteSQL(statement)
+        else:
+            logging.info("Loading boundig box: {}".format(bouding_box))
+            bb = conn.GetLayer(bouding_box)
         assert bb
 
         assert os.path.isdir(raster)
@@ -275,6 +280,7 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--vectorpath", type=str, required=True, help="Vector table.")
     parser.add_argument("-r", "--rasterpath", type=str, required=True, help="Raster file.")
     parser.add_argument("-n", "--nodata", type=float, default=None, help="No data value. Default None.")
+    parser.add_argument("-s", "--statement", type=str, default=None, help="SQL. Default None.")
     parser.add_argument("-l", "--log", type=str, default=None, help="Logs to a file. Default 'console'.")
     args = parser.parse_args()
 
@@ -288,7 +294,7 @@ if __name__ == "__main__":
         logging.info("Running 'zonal_stats_grid' to '{}' and '{}'...".format(args.vectorpath, args.rasterpath))
         ti = time.clock()
 
-        zs = ZonalStats(args.vectorpath, args.rasterpath, args.nodata)
+        zs = ZonalStats(args.vectorpath, args.rasterpath, args.nodata, args.statement)
         zs.extract()
         zs.close()
 
@@ -297,4 +303,4 @@ if __name__ == "__main__":
         tf_h = int((tf_min / 60) % 24)
         logging.info("Table created with success in {} hours {} minutes {} seconds!".format(tf_h, tf_min, tf_sec))
     except Exception as e:
-        logging.error("Error to process '{}' and '{}': {}".format(args.vectorpath, args.rasterpath, str(e)))
+        logging.error("Error to process '{}' and '{}': {}\n{}\n".format(args.vectorpath, args.rasterpath, str(e), traceback.format_exc()))
