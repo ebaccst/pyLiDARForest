@@ -46,7 +46,7 @@ def sendMail(message):
     conn = smtplib.SMTP('smtp.gmail.com', 587)
     conn.ehlo()
     conn.starttls()
-    conn.login('assismauro64@gmail.com', 'Hibisco@12')
+    conn.login('assismauro64@gmail.com', '******')
     conn.sendmail('assismauro64@gmail.com', 'assismauro64@gmail.com', message)
     conn.quit()
 
