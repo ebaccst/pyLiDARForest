@@ -101,7 +101,7 @@ args=ProcessCmdLine()
 a=''
 for arg in vars(args):
    a=a+str(getattr(args, arg))+'\r\n'
-send_email('assismauro64@gmail.com','Hibisco@12','assismauro64@gmail.com','Iniciando processamento',a)
+send_email('assismauro64@gmail.com','********','assismauro64@gmail.com','Iniciando processamento',a)
 
 firstbiomasscolumn=args.firstbiomasscolumn if args.firstbiomasscolumn > -1 else 0
 lastbiomasscolumn=args.lastbiomasscolumn if args.lastbiomasscolumn > -1 else args.numberofsimulations
@@ -188,7 +188,7 @@ for i in range(firstbiomasscolumn,lastbiomasscolumn):
             pass
         h2o.export_file(uncertainty, resultsdestination, force=True, parts=args.exportparts)
         secs=time.time() - start
-        send_email('assismauro64@gmail.com', 'Hibisco@12','assismauro64@gmail.com', 'Exportando arquivo...',
+        send_email('assismauro64@gmail.com', '******','assismauro64@gmail.com', 'Exportando arquivo...',
                    resultsdestination+'\r\n'+str(i)+'\r\n'+str(timedelta(seconds=secs))+'\r\n'+str(secs/i)+'\r\n'+
                    str(timedelta(seconds=(secs/i)*(lastbiomasscolumn-i))))
         uncertainty = None
